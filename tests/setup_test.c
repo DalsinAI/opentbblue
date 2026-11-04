@@ -77,6 +77,11 @@ int main(void)
     FILE *fp;
     long files = -1;
 
+    if (!tmp || !*tmp) tmp = getenv("TEMP");
+    if (!tmp || !*tmp) tmp = getenv("TMP");
+#ifdef _WIN32
+    if (!tmp || !*tmp) tmp = ".";
+#endif
     snprintf(dir, sizeof dir, "%s/otb-setup-test-%ld", tmp ? tmp : "/tmp", (long)time(NULL) ^ (long)clock());
 
     /* GitLab's archive: a global pax header, then everything in tbblue-<id>/. */
