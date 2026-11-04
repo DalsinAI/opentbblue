@@ -18,6 +18,13 @@ joystick, ESP8266 wifi through your computer's network, and a Raspberry Pi
 (NextPi) with its files in a host folder. The machine core comes from
 [ZxNextEmu](https://github.com/DalsinAI/ZxNextEmu).
 
+**Download:** [the latest release](https://github.com/DalsinAI/opentbblue/releases)
+(now 0.1.0-rc1, the first release candidate) has an installer for each system.
+
+It is quick on small machines too: on a 68040 Amiga it runs NextZXOS at 160%
+of a real Next's speed with no window, and at full speed in a window
+(figures in [docs/Amiga.md](docs/Amiga.md)).
+
 ## Installing
 
 Each release has an installer for every system it runs on:
@@ -27,7 +34,7 @@ Each release has an installer for every system it runs on:
 | Windows 10 and 11 | `OpenTBBlue-…-windows-setup.exe` | run it; OpenTBBlue is in the Start menu (no administrator needed) |
 | macOS 11 and later (Apple silicon) | `OpenTBBlue-…-macos-arm64.dmg` | open it and drag OpenTBBlue to Applications. It isn't signed by Apple yet, so the first time, right-click it and choose Open |
 | Debian, Ubuntu, Mint (x86-64) | `OpenTBBlue-…-linux-x86_64.deb` | `sudo apt install ./OpenTBBlue-…-linux-x86_64.deb`; it's in the games menu. Other Linuxes: the `.tar.gz` |
-| AmigaOS 3.2, 68040 or better, RTG | `OpenTBBlue-…-amiga-68040.lha` | unpack it and run Install-OpenTBBlue; it needs GFOpenGPU's SDL2.module and, for the first download, a `curl` (OpenUp has both) |
+| AmigaOS 3.2, 68040 or better, RTG | `OpenTBBlue-…-amiga-68040.lha` | unpack it and run Install-OpenTBBlue, which puts the OpenTBBlue drawer in Work: (or where you choose) and copies GFOpenGPU's SDL2.module if it isn't there. The first download needs a `curl` (OpenUp installs one). Updating keeps your OpenTBBlue-data |
 
 Then start it. The first start shows a small window while it downloads
 System/Next (about 100 MB) and writes it to the SD card, and then the Next
@@ -74,8 +81,8 @@ full speed, F11 switches full screen, and F10 quits.
 | Windows | `%APPDATA%\OpenTBBlue` |
 | AmigaOS | `PROGDIR:OpenTBBlue-data` |
 
-`OPENTBBLUE_HOME` overrides the location. Inside it, laid out the way
-AmiCradle keeps its machines:
+`OPENTBBLUE_HOME` overrides the location (on AmigaOS, set it with `SetEnv`
+or `Set`). Inside it:
 
 | Inside | Is |
 | --- | --- |
@@ -91,6 +98,24 @@ settings is copied into `media/` unchanged, and OpenTBBlue's own FAT reader
 `drives/<image name>/`, which is then the card. That happens once; after
 that the folder is used, with whatever the Next has saved in it. A card
 from an older OpenTBBlue in `sd/` moves to `drives/SD0/` by itself.
+
+For example, to use a card image you already have in the second slot:
+
+```sh
+opentbblue --sd1 ~/Downloads/mycard.img
+```
+
+or put `sd1=mycard.img` in `opentbblue.ini` after copying the image into the
+folder. The settings file the first run writes looks like this:
+
+```ini
+sd0=drives/SD0
+sd1=
+pi=pi
+scale=3
+fullscreen=0
+fetch=1
+```
 
 The first boot writes `machines/next/config.ini` on the card with `timing=0` (VGA at
 50 Hz), so it skips the monitor test card. Change it in the firmware's editor
@@ -113,6 +138,16 @@ hardware. Its parts keep their own licences.
 | `make` | `opentbblue` |
 | `make test` | the tar reader, image reader and first-boot config tests |
 | `make amiga` | `opentbblue.68k` for AmigaOS 3.2 on a 68040, with the OpenGPU SDL2. See [docs/Amiga.md](docs/Amiga.md) |
+
+Any SDL2 2.x builds it (on macOS, Homebrew's `sdl2` is fine for a local
+build). The release builds are made by `.github/workflows/release.yml`: it
+builds and install-tests all four installers on every pull request that
+touches the program or the packages, and publishes them when it runs with
+a version (a `v*` tag, or run by hand with `version`, such as `v0.1.0`; a
+version with a suffix such as `-rc1` is published as a pre-release). The
+macOS app has SDL2 built in, so it carries no libraries; the Amiga build
+uses the Team's OpenAmigaGCC, OpenNDK and the GFOpenGPU SDL2, all pinned in
+`package/amiga/build-ci.sh`.
 
 ## Licence
 

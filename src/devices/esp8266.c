@@ -5,7 +5,7 @@
  * The module answers AT commands the way ESP-AT 1.7 does, and its TCP and
  * UDP connections go out through the host's network (zx_net): sockets in a
  * native build, a WebSocket relay in a browser. Joining a network always
- * works and there is one access point, "ZXCradle", since the host is
+ * works and there is one access point, "OpenTBBlue", since the host is
  * already online.
  *
  * Handled: AT, ATE0/1, AT+RST, AT+RESTORE, AT+GMR, AT+CWMODE, AT+CWJAP,
@@ -279,7 +279,7 @@ static void command(esp *e, char *cmd)
     } else if (prefix(cmd, "AT+CWJAP", &r)) {
         if (*r == '?') {
             if (e->joined)
-                say(e, "+CWJAP:\"ZXCradle\",\"5a:58:43:52:41:44\",6,-42\r\n");
+                say(e, "+CWJAP:\"OpenTBBlue\",\"5a:58:43:52:41:44\",6,-42\r\n");
             else
                 say(e, "No AP\r\n");
             ok(e);
@@ -298,7 +298,7 @@ static void command(esp *e, char *cmd)
         ok(e);
         say(e, "WIFI DISCONNECT\r\n");
     } else if (!strcmp(cmd, "AT+CWLAP")) {
-        say(e, "+CWLAP:(3,\"ZXCradle\",-42,\"5a:58:43:52:41:44\",6,0,0)\r\n");
+        say(e, "+CWLAP:(3,\"OpenTBBlue\",-42,\"5a:58:43:52:41:44\",6,0,0)\r\n");
         ok(e);
     } else if (prefix(cmd, "AT+CWAUTOCONN", &r) || prefix(cmd, "AT+CWDHCP", &r)
                || prefix(cmd, "AT+CIPSTO", &r) || prefix(cmd, "AT+SLEEP", &r)

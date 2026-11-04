@@ -663,7 +663,7 @@ static void make_boot(vfat *v)
 
     memset(v->rsv, 0, sizeof v->rsv);
     memcpy(b, jmp, 3);
-    memcpy(b + 3, "ZXCRADLE", 8);
+    memcpy(b + 3, "OPENTBBL", 8);
     put16(b + 11, ZX_BLOCK);
     b[13] = (uint8_t)v->spc;
     put16(b + 14, RESERVED);
@@ -1248,7 +1248,7 @@ static zx_blockdev *open_folder(const char *path, uint32_t size_mb, int fat16)
         v->root[--len] = 0;
 
     v->fat16 = fat16;
-    v->label = fat16 ? "ZXCRADLE   " : "NEXT       ";
+    v->label = fat16 ? "OPENTBBLUE " : "NEXT       ";
 
     /* size: what was asked, else at least 2 GB (FAT16: 1 GB) with room to
        grow. FAT16 stops short of 2 GB: 65524 clusters of 32K at most. */

@@ -1,6 +1,5 @@
 ; $VER: Install-OpenTBBlue 0.1.0 (4.11.2026)
-; The Amiga Installer script for OpenTBBlue, an AmiCradle game port.
-; Made by amicradle scripts/port_installer.py: change the spec, not this file.
+; The Amiga Installer script for OpenTBBlue, a ZX Spectrum Next emulator.
 ; Run it from its icon, beside the OpenTBBlue drawer where the archive was unpacked.
 
 (set @app-name "OpenTBBlue")

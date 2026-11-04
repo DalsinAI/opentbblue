@@ -104,9 +104,9 @@ static void identify(ata_dev *a)
     put_word(a->buf, 1, cyls);
     put_word(a->buf, 3, HEADS);
     put_word(a->buf, 6, SPT);
-    put_string(a->buf, 10, 10, "ZXCRADLE0001");
+    put_string(a->buf, 10, 10, "OPENTBBLUE01");
     put_string(a->buf, 23, 4, "1.0");
-    put_string(a->buf, 27, 20, "ZX Cradle IDE disk");
+    put_string(a->buf, 27, 20, "OpenTBBlue IDE disk");
     put_word(a->buf, 47, 0x8001);
     put_word(a->buf, 49, 0x0200);              /* LBA */
     put_word(a->buf, 51, 0x0200);

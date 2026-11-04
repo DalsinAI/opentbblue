@@ -1,22 +1,32 @@
 # OpenTBBlue on AmigaOS (68040)
 
-The Amiga build is the same program with the same SDL2 window, built with
-OpenAmigaGCC 16.2.0-open3 (OpenNDK) against the OpenGPU SDL2. It needs AmigaOS 3.2, a 68040 and an RTG screen. The first-run
-download uses an Amiga `curl` in the path (OpenUp installs one in `C:`). Or
-copy a card made by another OpenTBBlue into `OpenTBBlue-data/sd`.
-The files go in `PROGDIR:OpenTBBlue-data`, beside the program, so put it on
-your fastest disk.
+The Amiga build is the same program with the same SDL2 window. It needs
+AmigaOS 3.2, a 68040 and an RTG screen. The first-run download uses an
+Amiga `curl` in the path (OpenUp installs one in `C:`), or copy a card made
+by another OpenTBBlue into `OpenTBBlue-data/drives/SD0`. The files go in
+`PROGDIR:OpenTBBlue-data`, beside the program, so put it on your fastest
+disk.
+
+On Linux (x86-64, glibc 2.38 or later), one script fetches the compiler
+(OpenAmigaGCC 16.2.0-open6), the OpenNDK headers and the GFOpenGPU SDL2
+link library at pinned versions, builds `opentbblue.68k` and packs the
+LhA with its Installer:
 
 ```sh
-make amiga AMIGA_CC=~/AmigaChrome/stoves/os32-gcc16/prefix/bin/m68k-amigaos-gcc
+sh package/amiga/build-ci.sh 0.1.0 dist
 ```
 
-That gives `opentbblue.68k`. SDL2 is the stove's OpenGPU SDL2 stub, which
-loads `LIBS:OpenGPU/SDL2.module` at run time; `AMIGA_SDL` points at another
-SDL2 prefix if needed. The Next's wifi uses `bsdsocket.library`, so any
+With an m68k-amigaos-gcc of your own and an SDL2 for it:
+
+```sh
+make amiga AMIGA_CC=/path/to/m68k-amigaos-gcc AMIGA_SDL=/path/to/sdl2-prefix
+```
+
+The SDL2 link library loads GFOpenGPU's `SDL2.module` at run time, which
+the Installer copies into `LIBS:` if it isn't there. The Next's wifi uses `bsdsocket.library`, so any
 TCP/IP stack works; with none running, the Next just sees no network.
 
-It's built 68040-only, soft-float (open3 picks the soft-float libraries
+It's built 68040-only, soft-float (the compiler picks the soft-float libraries
 for `-m68040`). The machine core has no floating point
 at all, so soft-float costs nothing. `-O3 -fomit-frame-pointer` frees a
 register for the CPU loop.

@@ -1,7 +1,7 @@
 /*
  * zx_net over bsdsocket.library, for the AmigaOS build (the same calls as
  * net_posix.c). Any TCP/IP stack works (Roadshow, AmiTCP, Miami, or
- * AmiCradle's OpenSocket). With no stack running the Next's wifi simply
+ * OpenSocket). With no stack running the Next's wifi simply
  * finds no network. Connections are non-blocking; name lookups block.
  */
 #include "net_posix.h"
