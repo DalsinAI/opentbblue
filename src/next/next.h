@@ -134,6 +134,7 @@ typedef struct zxn {
     uint8_t nr_11;
     uint8_t eff_5060;         /* nr_05 bit 2 as latched at the frame start */
     uint8_t eff_contention_off; /* nr_08 bit 6 as latched */
+    uint8_t cont_on;            /* contention applies now (cont_update) */
     uint8_t l2_bank, l2_shadow_bank;          /* nr_12, nr_13 */
     uint8_t transparent;                      /* nr_14 */
     uint8_t nr_15;

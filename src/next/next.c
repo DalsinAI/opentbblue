@@ -352,10 +352,13 @@ static void sync_audio(zxn *n)
     audio_run(n, n->clk);
 }
 
+static void cont_update(zxn *n);
+
 static void set_speed(zxn *n, uint8_t speed)
 {
     n->speed = speed & 3;
     n->tick = (uint8_t)(8 >> n->speed);
+    cont_update(n);
 }
 
 /* ---- interrupts (im2_peripheral / im2_device / pulse) -------------------- */
@@ -1220,16 +1223,25 @@ static const zx_timing *classic_timing(const zxn *n)
     }
 }
 
-static int contention_active(const zxn *n)
+/* Contention applies at 3.5 MHz with contention on and a non-Pentagon
+ * timing. Kept in cont_on, worked out again whenever one of those
+ * changes, so each bus access tests one byte. */
+static void cont_update(zxn *n)
 {
-    return n->speed == 0 && !n->eff_contention_off && timing_kind(n->eff_timing) != TPENT;
+    n->cont_on = n->speed == 0 && !n->eff_contention_off && timing_kind(n->eff_timing) != TPENT;
+}
+
+static inline int contention_active(const zxn *n)
+{
+    return n->cont_on;
 }
 
 /* Wait states (in T-states) the ULA inserts for an access starting now. */
 static uint32_t contend_delay(const zxn *n)
 {
     const zx_timing *tm = classic_timing(n);
-    int64_t t, c0, d, x;
+    int64_t t, c0, d;
+    uint32_t x;
     if (!tm)
         return 0;
     t = (int64_t)((n->clk - n->frame_start) >> 3);
@@ -1239,13 +1251,15 @@ static uint32_t contend_delay(const zxn *n)
     d = t - c0;
     if (d >= 192 * (int64_t)tm->line_t)
         return 0;
-    x = d % tm->line_t;
+    x = (uint32_t)d % tm->line_t;   /* d is under 192 lines: 32-bit maths */
     if (x >= 128)
         return 0;
     return tm->pattern[x & 7];
 }
 
-static inline void contend(zxn *n)
+/* Out of line: only 3.5 MHz contended accesses come here, and keeping it
+ * out keeps the bus functions small enough to inline into the Z80 core. */
+static __attribute__((noinline)) void contend(zxn *n)
 {
     n->clk += (uint64_t)contend_delay(n) << 3;
 }
@@ -1723,7 +1737,7 @@ static uint8_t port_read(zxn *n, uint16_t port)
 
 /* ---- bus callbacks -------------------------------------------------------- */
 
-static uint8_t b_fetch(void *ctx, uint16_t addr)
+static inline __attribute__((always_inline)) uint8_t b_fetch(void *ctx, uint16_t addr)
 {
     zx *m = ctx;
     zxn *n = m->next;
@@ -1753,7 +1767,7 @@ static uint8_t b_fetch(void *ctx, uint16_t addr)
     return v;
 }
 
-static uint8_t b_read(void *ctx, uint16_t addr)
+static inline __attribute__((always_inline)) uint8_t b_read(void *ctx, uint16_t addr)
 {
     zx *m = ctx;
     zxn *n = m->next;
@@ -1766,7 +1780,7 @@ static uint8_t b_read(void *ctx, uint16_t addr)
     return sl->rd[addr & 0x1fff];
 }
 
-static void b_write(void *ctx, uint16_t addr, uint8_t v)
+static inline __attribute__((always_inline)) void b_write(void *ctx, uint16_t addr, uint8_t v)
 {
     zx *m = ctx;
     zxn *n = m->next;
@@ -2204,6 +2218,7 @@ void nx_power_on(zx *m)
     n->machine_timing = 3;
     n->machine_type = 3;
     n->eff_timing = 3;
+    cont_update(n);
     n->user_dt_lock = 0;
     n->reset_type = 4;
     n->romram_bank = 0;
@@ -2378,6 +2393,7 @@ static void new_frame(zxn *n)
     n->eff_timing = n->machine_timing;
     n->eff_5060 = n->nr_05_5060;
     n->eff_contention_off = (n->nr_08 >> 6) & 1;
+    cont_update(n);
     set_timing(n);
     remap(n);
     raise_int_at(n, SRC_ULA, 0, n->frame_start);
