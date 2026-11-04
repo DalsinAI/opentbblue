@@ -200,83 +200,12 @@ static void ticks_silent(ay_chip *ay, uint32_t n)
     ay->acc_n += (int32_t)n;
 }
 
-/* Ticks from now until a counter that counts up to period (as ++cnt >=
- * period, then 0, on every tick it moves) wraps, when it moves on every
- * tick (half 0) or on every other tick, starting with the next one
- * (half 0 here means the next tick moves it) or the one after. */
-static uint32_t ticks_to_wrap(uint32_t cnt, uint32_t period, int every_other, int half)
-{
-    uint32_t m = cnt + 1 >= period ? 1 : period - cnt;   /* moves until it wraps */
-    if (!every_other)
-        return m;
-    return (half ? 2 : 1) + 2 * (m - 1);
-}
-
-/* n chip ticks, in stretches where no channel that sounds changes level:
- * each stretch adds its levels at once and moves the counters on with
- * ticks_silent, then the tick that changes something runs as itself.
- * Gives the same state and the same sums as n calls of tick(). */
-static void ticks_bulk(ay_chip *ay, uint32_t n)
-{
-    while (n) {
-        uint8_t mixer = ay->reg[7];
-        uint32_t safe = n, t;
-        int32_t lvl[3];
-        int ch, noise_used = 0, env_used = 0;
-
-        for (ch = 0; ch < 3; ch++) {
-            uint8_t v = ay->reg[8 + ch];
-            int tone_on = !((mixer >> ch) & 1), noise_on = !((mixer >> (ch + 3)) & 1);
-            int tone = ay->tone_out[ch] | !tone_on;
-            int noise = (int)(ay->lfsr & 1) | !noise_on;
-            lvl[ch] = 0;
-            if (!(v & 0x10) && !(v & 0x0f))
-                continue;               /* silent whatever happens */
-            if (v & 0x10)
-                env_used = 1;
-            if (noise_on)
-                noise_used = 1;
-            if (tone_on) {
-                uint32_t tp = (uint32_t)(ay->reg[ch * 2] | (ay->reg[ch * 2 + 1] << 8));
-                t = ticks_to_wrap(ay->tone_cnt[ch], tp ? tp : 1, 0, 0) - 1;
-                if (t < safe)
-                    safe = t;
-            }
-            if (tone && noise)
-                lvl[ch] = ay_vol[(v & 0x10) ? env_level(ay) : (v & 0x0f)];
-        }
-        if (noise_used) {
-            t = ticks_to_wrap(ay->noise_cnt, ay->reg[6] ? ay->reg[6] : 1, 1, ay->noise_half) - 1;
-            if (t < safe)
-                safe = t;
-        }
-        if (env_used && !ay->env_holding) {
-            uint32_t ep = (uint32_t)(ay->reg[11] | (ay->reg[12] << 8));
-            t = ticks_to_wrap(ay->env_cnt, ep ? ep : 1, 1, ay->env_half) - 1;
-            if (t < safe)
-                safe = t;
-        }
-        if (safe < 4) {                 /* not worth a stretch */
-            tick(ay);
-            n--;
-            continue;
-        }
-        for (ch = 0; ch < 3; ch++)
-            ay->acc[ch] += lvl[ch] * (int32_t)safe;
-        ticks_silent(ay, safe);
-        n -= safe;
-    }
-}
-
 void ay_run(ay_chip *ay, uint32_t clocks)
 {
     ay->clk_div += clocks;
 #ifndef AY_NO_BULK
-    if (ay->clk_div >= 16) {
-        if (!((ay->reg[8] | ay->reg[9] | ay->reg[10]) & 0x1f))
-            ticks_silent(ay, ay->clk_div >> 3);
-        else
-            ticks_bulk(ay, ay->clk_div >> 3);
+    if (ay->clk_div >= 16 && !((ay->reg[8] | ay->reg[9] | ay->reg[10]) & 0x1f)) {
+        ticks_silent(ay, ay->clk_div >> 3);
         ay->clk_div &= 7;
         return;
     }
