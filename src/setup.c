@@ -7,6 +7,7 @@
  * unpacking needs no decompressor; the reader below is our own.
  */
 #include "setup.h"
+#include "fatimg.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -371,11 +372,47 @@ static int read_mark(const char *sd, char id[41])
     return id[0] ? 0 : -1;
 }
 
+/* A note beside each file in the media repository: where it came from. */
+static void write_sidecar(const char *file, const char *source, const char *commit, const char *date,
+                          long long size)
+{
+    char p[1200];
+    FILE *fp;
+    snprintf(p, sizeof p, "%s.json", file);
+    fp = fopen(p, "wb");
+    if (!fp)
+        return;
+    fprintf(fp, "{\n  \"source\": \"%s\",\n", source);
+    if (commit && *commit)
+        fprintf(fp, "  \"commit\": \"%s\",\n", commit);
+    if (date && *date)
+        fprintf(fp, "  \"date\": \"%s\",\n", date);
+    fprintf(fp, "  \"size\": %lld,\n  \"note\": \"As downloaded; OpenTBBlue never changes this file.\"\n}\n", size);
+    fclose(fp);
+}
+
+static long long file_size(const char *p)
+{
+    struct stat st;
+    return stat(p, &st) == 0 && S_ISREG(st.st_mode) ? (long long)st.st_size : -1;
+}
+
+static void write_mark(const char *sd, const char *id, const char *date, const char *from)
+{
+    char p[1100];
+    FILE *fp;
+    join(p, sizeof p, sd, MARK_FILE);
+    fp = fopen(p, "w");
+    if (fp) {
+        fprintf(fp, "commit=%s\ndate=%s\nsource=https://gitlab.com/thesmog358/tbblue\nmedia=%s\n", id, date, from);
+        fclose(fp);
+    }
+}
+
 int otb_fetch(const char *sd, int update)
 {
-    char id[41], date[32], have[41], url[300], tar[1100];
+    char id[41], date[32], have[41], url[300], tar[1200], part[1300], media[1100], name[80];
     long files = 0;
-    FILE *fp;
 
     if (otb_card_ready(sd) && !update) {
         printf("OpenTBBlue: the Next's SD card is already at %s\n", sd);
@@ -390,31 +427,223 @@ int otb_fetch(const char *sd, int update)
         printf("OpenTBBlue: the SD card already has the latest distribution (%.10s, %s)\n", id, date);
         return 0;
     }
-    snprintf(url, sizeof url, TBBLUE_TAR, id, id);
-    otb_path(tar, sizeof tar, "tbblue-download.tar");
-    printf("OpenTBBlue: downloading System/Next %.10s (%s), about 100 MB...\n", id, date);
-    if (run_curl(url, tar, 0)) {
-        fprintf(stderr, "opentbblue: the download failed\n");
-        remove(tar);
+    /* The official archive is kept, unchanged, in the media repository;
+     * one already there is not downloaded again. */
+    otb_path(media, sizeof media, OTB_MEDIA);
+    if (otb_mkdirs(media))
         return -1;
+    snprintf(name, sizeof name, "tbblue-%s.tar", id);
+    join(tar, sizeof tar, media, name);
+    if (file_size(tar) < 1000000) {
+        snprintf(url, sizeof url, TBBLUE_TAR, id, id);
+        snprintf(part, sizeof part, "%s.part", tar);
+        printf("OpenTBBlue: downloading System/Next %.10s (%s), about 100 MB...\n", id, date);
+        if (run_curl(url, part, 0) || rename(part, tar)) {
+            fprintf(stderr, "opentbblue: the download failed\n");
+            remove(part);
+            return -1;
+        }
+        write_sidecar(tar, url, id, date, file_size(tar));
+    } else {
+        printf("OpenTBBlue: using System/Next %.10s from the media repository\n", id);
     }
-    printf("OpenTBBlue: unpacking into %s\n", sd);
+    printf("OpenTBBlue: writing its files into %s\n", sd);
     if (otb_untar(tar, sd, &files) || files < 100) {
         fprintf(stderr, "opentbblue: unpacking failed (%ld files)\n", files);
-        remove(tar);
         return -1;
     }
-    remove(tar);
     otb_default_config(sd);
-    {
-        char p[1100];
-        join(p, sizeof p, sd, MARK_FILE);
-        fp = fopen(p, "w");
-        if (fp) {
-            fprintf(fp, "commit=%s\ndate=%s\nsource=https://gitlab.com/thesmog358/tbblue\n", id, date);
-            fclose(fp);
-        }
-    }
+    write_mark(sd, id, date, name);
     printf("OpenTBBlue: %ld files ready. The distribution's licence is in %s/LICENSE.md\n", files, sd);
     return 0;
+}
+
+/* ---- images ------------------------------------------------------------- */
+
+static const char *base_name(const char *p)
+{
+    const char *b = p, *q;
+    for (q = p; *q; q++)
+        if (*q == '/' || *q == '\\' || *q == ':')
+            b = q + 1;
+    return b;
+}
+
+static int copy_into(const char *from, const char *to)
+{
+    char part[1400];
+    static char chunk[65536];
+    FILE *in = fopen(from, "rb"), *out;
+    size_t n;
+    int rc = 0;
+    if (!in)
+        return -1;
+    snprintf(part, sizeof part, "%s.part", to);
+    out = fopen(part, "wb");
+    if (!out) {
+        fclose(in);
+        return -1;
+    }
+    while ((n = fread(chunk, 1, sizeof chunk, in)) > 0)
+        if (fwrite(chunk, 1, n, out) != n) {
+            rc = -1;
+            break;
+        }
+    fclose(in);
+    if (fclose(out) || rc || rename(part, to)) {
+        remove(part);
+        return -1;
+    }
+    return 0;
+}
+
+int otb_import_image(const char *image, char *drive, size_t size)
+{
+    char media[1100], kept[1300], drives[1100], name[256], mark[1400], want[400], got[400] = "";
+    const char *b = base_name(image);
+    long long isize = file_size(image);
+    long files = 0;
+    size_t n;
+    FILE *fp;
+
+    if (isize <= 0 || !otb_img_is_fat(image)) {
+        fprintf(stderr, "opentbblue: %s is not a FAT disk image\n", image);
+        return -1;
+    }
+    /* drives/<image name without .img> */
+    snprintf(name, sizeof name, "%s", b);
+    n = strlen(name);
+    if (n > 4 && (!strcmp(name + n - 4, ".img") || !strcmp(name + n - 4, ".IMG") ||
+                  !strcmp(name + n - 4, ".hdf") || !strcmp(name + n - 4, ".bin")))
+        name[n - 4] = 0;
+    otb_path(drives, sizeof drives, OTB_DRIVES);
+    join(drive, size, drives, name);
+
+    /* Already written into that drive from this image: use it as it is,
+     * with whatever the Next has saved there since. */
+    snprintf(want, sizeof want, "image=%s size=%lld", b, isize);
+    join(mark, sizeof mark, drive, ".opentbblue-image");
+    if ((fp = fopen(mark, "r")) != NULL) {
+        if (!fgets(got, sizeof got, fp))
+            got[0] = 0;
+        fclose(fp);
+        got[strcspn(got, "\r\n")] = 0;
+        if (!strcmp(got, want))
+            return 0;
+    }
+    if (is_dir(drive)) {
+        fprintf(stderr, "opentbblue: %s already holds a drive; move it away to write %s there again\n", drive, b);
+        return -1;
+    }
+
+    /* The official image goes into the media repository unchanged. */
+    otb_path(media, sizeof media, OTB_MEDIA);
+    if (otb_mkdirs(media))
+        return -1;
+    join(kept, sizeof kept, media, b);
+    if (file_size(kept) != isize) {
+        printf("OpenTBBlue: keeping %s in the media repository\n", b);
+        if (copy_into(image, kept)) {
+            fprintf(stderr, "opentbblue: cannot copy %s into %s\n", image, media);
+            return -1;
+        }
+        write_sidecar(kept, image, NULL, NULL, isize);
+    }
+    printf("OpenTBBlue: writing the files of %s into %s\n", b, drive);
+    if (otb_img_extract(kept, drive, &files)) {
+        fprintf(stderr, "opentbblue: reading %s failed after %ld files\n", b, files);
+        return -1;
+    }
+    if ((fp = fopen(mark, "w")) != NULL) {
+        fprintf(fp, "%s\n", want);
+        fclose(fp);
+    }
+    printf("OpenTBBlue: %ld files ready in %s\n", files, drive);
+    return 0;
+}
+
+/* ---- settings ----------------------------------------------------------- */
+
+void otb_settings_defaults(otb_settings *s)
+{
+    memset(s, 0, sizeof *s);
+    snprintf(s->sd0, sizeof s->sd0, "%s/SD0", OTB_DRIVES);
+    snprintf(s->pi, sizeof s->pi, "pi");
+    s->scale = 3;
+    s->fetch = 1;
+}
+
+static void trim(char *t)
+{
+    size_t n = strlen(t);
+    while (n && (t[n - 1] == ' ' || t[n - 1] == '\t' || t[n - 1] == '\r' || t[n - 1] == '\n'))
+        t[--n] = 0;
+}
+
+int otb_settings_load(otb_settings *s)
+{
+    char p[1100], line[1200];
+    FILE *fp;
+    otb_settings_defaults(s);
+    otb_path(p, sizeof p, OTB_SETTINGS);
+    fp = fopen(p, "r");
+    if (!fp) {
+        fp = fopen(p, "wb");
+        if (!fp)
+            return -1;
+        fprintf(fp,
+                "# OpenTBBlue settings. Options on the command line win over these.\n"
+                "# Paths are inside this folder unless they are full paths.\n"
+                "#\n"
+                "# sd0, sd1: the Next's two SD card slots. A folder is used as the card;\n"
+                "#   a .img is kept in media/ and its files written into drives/<name>/,\n"
+                "#   which is then the card. sd0 is filled from the latest System/Next\n"
+                "#   on the first run. sd1 is empty unless you set it.\n"
+                "sd0=%s\n"
+                "sd1=\n"
+                "# pi: the NextPi's files\n"
+                "pi=%s\n"
+                "# scale: window size (1-6); fullscreen: 1 to start full screen\n"
+                "scale=%d\n"
+                "fullscreen=0\n"
+                "# fetch: 1 to fetch System/Next when the card is empty, 0 never\n"
+                "fetch=1\n",
+                s->sd0, s->pi, s->scale);
+        return fclose(fp);
+    }
+    while (fgets(line, sizeof line, fp)) {
+        char *eq = strchr(line, '=');
+        if (line[0] == '#' || !eq)
+            continue;
+        *eq = 0;
+        trim(line);
+        trim(eq + 1);
+        if (!strcmp(line, "sd0")) snprintf(s->sd0, sizeof s->sd0, "%s", eq + 1);
+        else if (!strcmp(line, "sd1")) snprintf(s->sd1, sizeof s->sd1, "%s", eq + 1);
+        else if (!strcmp(line, "pi")) snprintf(s->pi, sizeof s->pi, "%s", eq + 1);
+        else if (!strcmp(line, "scale")) s->scale = atoi(eq + 1);
+        else if (!strcmp(line, "fullscreen")) s->fullscreen = atoi(eq + 1) != 0;
+        else if (!strcmp(line, "fetch")) s->fetch = atoi(eq + 1) != 0;
+    }
+    fclose(fp);
+    return 0;
+}
+
+void otb_resolve(char *out, size_t size, const char *p)
+{
+    int full = p[0] == '/' || p[0] == '\\' || strchr(p, ':') != NULL;
+    if (full)
+        snprintf(out, size, "%s", p);
+    else
+        otb_path(out, size, p);
+}
+
+void otb_migrate(void)
+{
+    char old[1100], drives[1100], sd0[1200];
+    otb_path(old, sizeof old, "sd");
+    otb_path(drives, sizeof drives, OTB_DRIVES);
+    join(sd0, sizeof sd0, drives, "SD0");
+    if (is_dir(old) && !is_dir(sd0) && otb_mkdirs(drives) == 0 && rename(old, sd0) == 0)
+        printf("OpenTBBlue: the SD card folder is now %s\n", sd0);
 }
