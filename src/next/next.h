@@ -201,6 +201,7 @@ typedef struct zxn {
 
     /* interrupts (device/im2_*.vhd) */
     uint8_t im2_state[14];    /* 0 idle, 1 request, 2 ack, 3 in service */
+    uint8_t im2_busy;         /* how many im2_state entries are not idle */
     uint8_t int_status[14];
     nx_clk pulse_start, pulse_end;
     nx_clk line_int_clk;    /* next line interrupt, or ~0 */

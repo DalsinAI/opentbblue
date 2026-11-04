@@ -407,8 +407,10 @@ static void raise_int_at(zxn *n, int src, int unq, nx_clk t)
     if (!en && !unq)
         return;
     if (im2hw) {
-        if (n->im2_state[src] == IM2_IDLE)
+        if (n->im2_state[src] == IM2_IDLE) {
             n->im2_state[src] = IM2_REQ;
+            n->im2_busy++;
+        }
         /* the ULA still pulses when the CPU is not in IM 2 */
         if (src == SRC_ULA && n->m->cpu.im != 2)
             start_pulse(n, t);
@@ -431,7 +433,7 @@ static void raise_int(zxn *n, int src, int unq)
 static int im2_pending(const zxn *n)
 {
     int i;
-    if (!(n->nr_c0 & 1) || n->m->cpu.im != 2)
+    if (!n->im2_busy || !(n->nr_c0 & 1) || n->m->cpu.im != 2)
         return -1;
     for (i = 0; i < 14; i++) {
         if (n->im2_state[i] == IM2_REQ)
@@ -468,6 +470,7 @@ static void b_reti(void *ctx)
     for (i = 0; i < 14; i++) {
         if (n->im2_state[i] == IM2_ISR) {
             n->im2_state[i] = IM2_IDLE;
+            n->im2_busy--;
             break;
         }
         if (n->im2_state[i] == IM2_ACK)
@@ -2191,6 +2194,7 @@ void nx_soft_reset(zx *m)
     n->stackless_retn = 0;
 
     memset(n->im2_state, 0, sizeof n->im2_state);
+    n->im2_busy = 0;
     memset(n->int_status, 0, sizeof n->int_status);
     n->pulse_start = n->pulse_end = 0;
     ctc_reset(n);
@@ -2478,7 +2482,7 @@ void nx_run_frame(zx *m)
                 continue;
             }
         }
-        if (int_line(n) && z80_int_enabled(&m->cpu)) {
+        if (z80_int_enabled(&m->cpu) && int_line(n)) {
             nx_z80_interrupt(&m->cpu, &m->bus);
             continue;
         }
