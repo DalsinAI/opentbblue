@@ -27,6 +27,14 @@
 #define TBBLUE_TAR  "https://gitlab.com/thesmog358/tbblue/-/archive/%s/tbblue-%s.tar"
 #define MARK_FILE   ".opentbblue"
 
+/* Where the files go when nothing says otherwise. On AmigaOS that is beside
+ * the program, on the disk the user chose to put it on. */
+#if defined(__AMIGA__) || defined(__amigaos__)
+#define OTB_DEFAULT_HOME "PROGDIR:OpenTBBlue-data"
+#else
+#define OTB_DEFAULT_HOME "opentbblue-data"
+#endif
+
 static char home[1024];
 
 static int is_dir(const char *p)
@@ -75,21 +83,17 @@ const char *otb_home(void)
 #if defined(_WIN32)
     else if ((e = getenv("APPDATA")) && *e)
         snprintf(home, sizeof home, "%s\\OpenTBBlue", e);
-#elif defined(__AMIGA__) || defined(__amigaos__)
-    /* Beside the program: the fastest disk the user chose to put it on. */
-    else
-        snprintf(home, sizeof home, "PROGDIR:OpenTBBlue-data");
 #elif defined(__APPLE__)
     else if ((e = getenv("HOME")) && *e)
         snprintf(home, sizeof home, "%s/Library/Application Support/OpenTBBlue", e);
-#else
+#elif !defined(__AMIGA__) && !defined(__amigaos__)
     else if ((e = getenv("XDG_DATA_HOME")) && *e)
         snprintf(home, sizeof home, "%s/opentbblue", e);
     else if ((e = getenv("HOME")) && *e)
         snprintf(home, sizeof home, "%s/.local/share/opentbblue", e);
 #endif
     else
-        snprintf(home, sizeof home, "opentbblue-data");
+        snprintf(home, sizeof home, "%s", OTB_DEFAULT_HOME);
     if (otb_mkdirs(home)) {
         fprintf(stderr, "opentbblue: cannot make %s\n", home);
         home[0] = 0;

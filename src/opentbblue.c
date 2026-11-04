@@ -44,6 +44,12 @@
 
 #define VERSION "0.1.0"
 
+#if defined(__AMIGA__) || defined(__amigaos__)
+/* The shell's default 4 KB stack is too small; libnix grows it to this. */
+unsigned long __stack = 131072;
+static const char amiga_version[] __attribute__((used)) = "$VER: OpenTBBlue " VERSION " (4.11.2026)";
+#endif
+
 static zx m;
 static zx_typer typer;
 

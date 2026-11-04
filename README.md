@@ -71,7 +71,7 @@ The first boot writes `sd/machines/next/config.ini` with `timing=0` (VGA at
 (hold Space while it boots, then press E) like on a real Next.
 
 The download uses your system's `curl`. Windows 10 and later, macOS and Linux
-include it. On AmigaOS, use [gfopencurl](https://github.com/DalsinAI/gfopencurl).
+include it. On AmigaOS, any `curl` in the path works (OpenUp installs one in `C:`).
 
 ## The distribution
 
@@ -86,7 +86,7 @@ hardware. Its parts keep their own licences.
 | --- | --- |
 | `make` | `opentbblue` |
 | `make test` | the tar reader and first-boot config tests |
-| `make amiga` | `opentbblue.68k` for AmigaOS 3.2 on a 68040, with gfopensdl. See [docs/Amiga.md](docs/Amiga.md) |
+| `make amiga` | `opentbblue.68k` for AmigaOS 3.2 on a 68040, with the OpenGPU SDL2. See [docs/Amiga.md](docs/Amiga.md) |
 
 ## Licence
 
