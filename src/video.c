@@ -62,6 +62,8 @@ static void set_logical(void)
 
 #if defined(__AMIGA__) || defined(__amigaos__)
 static int amiga_start_big;
+#include <proto/intuition.h>
+#include <intuition/screens.h>
 void otb_video_fullscreen(void);
 #endif
 
@@ -154,10 +156,22 @@ void otb_video_title(const char *title)
  * back at the size it had. */
 static int amiga_big, amiga_scale;
 
+/* The Workbench screen's size, from Intuition: SDL2.module's display
+ * calls did not give it reliably. */
+static int amiga_screen(int *w, int *h)
+{
+    struct Screen *scr = LockPubScreen(NULL);
+    if (!scr)
+        return -1;
+    *w = scr->Width;
+    *h = scr->Height;
+    UnlockPubScreen(NULL, scr);
+    return 0;
+}
+
 void otb_video_fullscreen(void)
 {
-    SDL_DisplayMode dm;
-    int s, h = ZX_SCREEN_H + BAR_H;
+    int sw, sh, s, h = ZX_SCREEN_H + (bar_below() ? BAR_H : 0);
     if (amiga_big) {
         amiga_big = 0;
         bst.scale = amiga_scale;
@@ -168,28 +182,12 @@ void otb_video_fullscreen(void)
         settle = 50;
         return;
     }
-    /* the screen's size, by whichever call SDL2.module answers */
+    if (amiga_screen(&sw, &sh))
+        return;
+    /* as big as fits, keeping the shape, with room for the window's
+     * borders and the screen's title bar */
     {
-        SDL_Rect r;
-        int i = SDL_GetWindowDisplayIndex(win);
-        if (i < 0)
-            i = 0;
-        dm.w = dm.h = 0;
-        if (!SDL_GetDisplayUsableBounds(i, &r) && r.w > 0 && r.h > 0) {
-            dm.w = r.w;
-            dm.h = r.h;
-        } else if (!SDL_GetDisplayBounds(i, &r) && r.w > 0 && r.h > 0) {
-            dm.w = r.w;
-            dm.h = r.h;
-        } else if (SDL_GetCurrentDisplayMode(i, &dm) || dm.w <= 0 || dm.h <= 0) {
-            if (SDL_GetDesktopDisplayMode(i, &dm) || dm.w <= 0 || dm.h <= 0)
-                return;
-        }
-    }
-    /* as big as fits, keeping the shape; room for the window's borders
-     * and the screen's title bar */
-    {
-        double fw = (double)(dm.w - 16) / ZX_SCREEN_W, fh = (double)(dm.h - 40) / h;
+        double fw = (double)(sw - 16) / ZX_SCREEN_W, fh = (double)(sh - 40) / h;
         double f = fw < fh ? fw : fh;
         if (f < 1)
             f = 1;
@@ -202,9 +200,8 @@ void otb_video_fullscreen(void)
         bar_dirty = 1;
         force = 1;
         settle = 50;
-        fprintf(stderr, "opentbblue: full screen: %dx%d screen, window %dx%d\n", dm.w, dm.h,
-                (int)(ZX_SCREEN_W * f), (int)(h * f));
     }
+    printf("opentbblue: full screen: %dx%d screen, scale %d\n", sw, sh, s);
 }
 #else
 void otb_video_fullscreen(void)
