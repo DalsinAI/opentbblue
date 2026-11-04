@@ -49,16 +49,48 @@ frames):
 | `b_fetch` | 8% | the bus's opcode fetch |
 | `z80_step` | 5% | the Z80N itself |
 
-Next, in that order, each one checked to give the same picture and sound
-frame for frame, and measured:
+Done, each one checked frame for frame with `tests/compare.sh` (five
+scenarios: NextBASIC, the tilemap demo, Warhawk, show512 and Spectron
+2084, with every 50th picture and all of the sound hashed). Building with
+`-DOTB_CHECK_MIX` also checks the mixer's fast path against the full mixer
+on every pixel.
 
-1. Mixer fast paths: when only the ULA is on (no Layer 2, sprites or
-   tilemap visible, which is most of the time in NextZXOS and in 48K/128K
-   games), draw the line straight from the ULA. Also build a whole line from
-   each layer once, instead of calling every layer for every pixel.
-2. divMMC automap: work out once, when the automap settings change, which
-   fetch addresses can trigger it, so most fetches skip the check.
-3. Events: keep the next due event's tick in one variable, so most cycles
-   make one compare.
-4. Measure on the AmiCradle 68040 lab and then on a real 68040, and post the
-   table with each change.
+| Change | NextZXOS menu, 3000 frames (x86-64) |
+| --- | --- |
+| Before | 16.9 s (177 frames a second) |
+| Mixer: ULA-only lines skip the other layers; one ULA pixel for both halves unless hi-res or half-pixel scroll | |
+| divMMC automap: fetches at no entry point skip the trigger checks | 10.1 s (296 frames a second) |
+
+That's 40% less time, with the same pictures and sound in all five
+scenarios. Across all five scenarios, 75 s went down to 54 s.
+
+Round 2, checked the same way (and with `-DOTB_CHECK_MIX`):
+
+- The plain Spectrum screen is drawn a byte (8 pixels) at a time: the
+  pixel and attribute bytes and the ink and paper colours are looked up
+  once per byte, not once per half-pixel.
+- Events: the earliest due event's tick is kept in `ev_next`, so most bus
+  cycles make one compare. Port and nextreg writes, the line interrupt,
+  the copper, the UARTs, resets and each new frame clear it.
+- Opcode fetches at no automap entry point skip the automap call.
+- The video position maths is 32-bit, so there's no 64-bit divide (a
+  library call on the 68040) on each video catch-up.
+- A silent AY (all three volumes 0, no envelope) moves its counters on in
+  bulk instead of a tick at a time. Turbosound has three of them.
+
+| Run | Before round 2 | After round 2 |
+| --- | --- | --- |
+| Five scenarios (x86-64) | 57 s | 34 s |
+| NextZXOS, 1500 frames, no window (x86-64) | 5.01 s (300 fps) | 2.29 s (654 fps) |
+| NextZXOS, 1500 frames, no window (68040 lab) | 31.98 s (46.9 fps, 94%) | 18.77 s (79.9 fps, 160%) |
+| NextZXOS, 500 frames, no window (68040 lab) | 9.39 s (53.3 fps, 107%) | 5.73 s (87.3 fps, 175%) |
+
+In the window on the 68040 lab, round 2 holds 49.4 frames a second (real
+time is 50), drawing only the frames that changed.
+
+Next:
+
+1. Measure on a real 68040. In the lab SDL2 draws through WritePixelArray
+   (its bitmap lock fails there), the slower path.
+2. The Z80N's clock is 64-bit; on a 68040 every add and compare on it is
+   two instructions. A 32-bit clock inside the frame is the next step.

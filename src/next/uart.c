@@ -144,6 +144,7 @@ static void schedule(zxn *n)
 {
     int i;
     n->uart_next = UINT64_MAX;
+    n->ev_next = 0;
     for (i = 0; i < 2; i++) {
         nx_uart *u = &n->uart[i];
         if (u->tx_busy && u->tx_done < n->uart_next)

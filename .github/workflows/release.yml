@@ -101,4 +101,5 @@ jobs:
           TAG: ${{ inputs.version || github.ref_name }}
         run: |
           cd dist && sha256sum * > SHA256SUMS && cd ..
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "OpenTBBlue ${TAG#v}" --notes-file RELEASE-NOTES.md
+          pre=; case $TAG in *-*) pre=--prerelease ;; esac   # v0.1.0-rc1 is a release candidate
+          gh release create "$TAG" dist/* $pre --target "$GITHUB_SHA" --title "OpenTBBlue ${TAG#v}" --notes-file RELEASE-NOTES.md

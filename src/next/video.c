@@ -16,6 +16,9 @@
 #include "../zx/zx.h"
 
 #include <string.h>
+#ifdef OTB_CHECK_MIX
+#include <stdlib.h>
+#endif
 
 /* ---- helpers -------------------------------------------------------------- */
 
@@ -589,12 +592,133 @@ static uint16_t mix(const zxn *n, int wx, int wy, int s, int spr_pix)
 
 /* ---- the lazy renderer ---------------------------------------------------- */
 
+/* With the tilemap and Layer 2 off, no sprite pixel in the span and one of
+ * the plain priority orders (not the blending ones), every layer but the
+ * ULA is transparent, so mix() comes down to the ULA pixel or the fallback
+ * colour. That is NextZXOS and most 48K/128K software, nearly all the time.
+ * OTB_CHECK_MIX builds check this against mix() for every pixel. */
+static int ula_only(const zxn *n, int xa, int xb)
+{
+    int x;
+    if ((n->nr_6b & 0x80) || n->l2_en || ((n->nr_15 >> 2) & 7) > 5)
+        return 0;
+    for (x = xa; x < xb; x++)
+        if (n->spr_line[x] & 0x100)
+            return 0;
+    return 1;
+}
+
+/* The plain ULA screen (no LoRes, ULANext, ULA+, Timex hi-res/hi-colour or
+ * half-pixel scroll) a byte at a time: the pixel and attribute bytes are
+ * read and the ink and paper colours looked up once per 8 pixels, not per
+ * pixel. Gives what ula_pixel() gives for every pixel; returns 0 when the
+ * screen is in any other mode. */
+static int ula_plain_span(const zxn *n, uint16_t *row, int wy, int xa, int xb, uint16_t fb, int ula_off)
+{
+    int shadow = (n->port_7ffd >> 3) & 1;
+    int mode = shadow ? 0 : (n->port_ff & 7);
+    int vc = wy - 32, x, y, last_col = -1;
+    const uint8_t *clip = n->clip[2];
+    const uint16_t *pal = n->pal_ulatm + (((n->nr_43 >> 1) & 1) << 8);
+    uint16_t ink = 0, paper = 0, border_rgb;
+    uint8_t bits = 0;
+    uint32_t line_pa = 0, line_aa = 0;
+    int row_clipped;
+
+    if ((n->nr_15 & 0x80) || (n->nr_43 & 1) || n->ulap_en || (mode & 6) || (n->nr_68 & 4))
+        return 0;
+
+    border_rgb = pal[16 | (n->port_fe & 7)] & 0x1ff;
+    border_rgb = (ula_off || (border_rgb >> 1) == n->transparent) ? fb : border_rgb;
+    if (vc < 0 || vc > 191) {
+        for (x = xa; x < xb; x++)
+            row[2 * x] = row[2 * x + 1] = border_rgb;
+        return 1;
+    }
+    y = vc + n->ula_scroll_y;
+    if (y >= 192)
+        y -= 192;
+    line_pa = (uint32_t)(((mode & 1) ? 0x2000 : 0) | (y & 0xc0) << 5 | (y & 7) << 8 | (y & 0x38) << 2);
+    line_aa = (uint32_t)(((mode & 1) ? 0x2000 : 0) | 0x1800 | (y >> 3) << 5);
+    row_clipped = !(vc >= clip[2] && vc <= clip[3]);
+
+    for (x = xa; x < xb; x++) {
+        int phc = x - 32, px, col;
+        uint16_t out;
+        if (phc < 0 || phc > 255) {
+            row[2 * x] = row[2 * x + 1] = border_rgb;
+            continue;
+        }
+        px = (phc + n->ula_scroll_x) & 255;
+        col = px >> 3;
+        if (col != last_col) {
+            uint8_t attr = vram(n, shadow, line_aa | col);
+            int bright = (attr >> 6) & 1;
+            bits = vram(n, shadow, line_pa | col);
+            if ((attr & 0x80) && (n->flash & 16))
+                bits = (uint8_t)~bits;
+            ink = pal[bright << 3 | (attr & 7)] & 0x1ff;
+            paper = pal[16 | bright << 3 | ((attr >> 3) & 7)] & 0x1ff;
+            ink = (ula_off || (ink >> 1) == n->transparent) ? fb : ink;
+            paper = (ula_off || (paper >> 1) == n->transparent) ? fb : paper;
+            last_col = col;
+        }
+        if (row_clipped || phc < clip[0] || phc > clip[1])
+            out = fb;
+        else
+            out = ((bits << (px & 7)) & 0x80) ? ink : paper;
+        row[2 * x] = row[2 * x + 1] = out;
+    }
+    return 1;
+}
+
 static void draw_span(zxn *n, int wy, int xa, int xb)
 {
     uint16_t *row = n->screen[wy];
     int x;
     if (n->spr_line_y != wy)
         sprite_line(n, wy);
+    if (ula_only(n, xa, xb)) {
+        uint16_t fb = rgb8to9(n->fallback);
+        int ula_off = (n->nr_68 & 0x80) != 0, s;
+        /* Both half-pixels are the same ULA pixel unless hi-res (Timex mode 6,
+         * no shadow screen) or the half-pixel scroll is on; LoRes never
+         * looks at the half. */
+        int halves = ((n->port_ff & 4) && !((n->port_7ffd >> 3) & 1)) || (n->nr_68 & 4);
+#ifdef OTB_CHECK_MIX
+        if (ula_plain_span(n, row, wy, xa, xb, fb, ula_off)) {
+            for (x = xa; x < xb; x++)
+                for (s = 0; s < 2; s++)
+                    if (row[2 * x + s] != mix(n, x, wy, s, n->spr_line[x])) {
+                        fprintf(stderr, "plain ULA span differs at %d,%d.%d\n", x, wy, s);
+                        abort();
+                    }
+            return;
+        }
+#else
+        if (ula_plain_span(n, row, wy, xa, xb, fb, ula_off))
+            return;
+#endif
+        for (x = xa; x < xb; x++) {
+            for (s = 0; s < 2; s++) {
+                int mt, border;
+                uint16_t rgb;
+                if (s && !halves) {
+                    row[2 * x + 1] = row[2 * x];
+                } else {
+                    rgb = ula_pixel(n, x, wy, s, &mt, &border);
+                    row[2 * x + s] = (mt || ula_off) ? fb : rgb;
+                }
+#ifdef OTB_CHECK_MIX
+                if (row[2 * x + s] != mix(n, x, wy, s, n->spr_line[x])) {
+                    fprintf(stderr, "mix fast path differs at %d,%d.%d\n", x, wy, s);
+                    abort();
+                }
+#endif
+            }
+        }
+        return;
+    }
     for (x = xa; x < xb; x++) {
         int sp = n->spr_line[x];
         row[2 * x] = mix(n, x, wy, 0, sp);
@@ -605,21 +729,29 @@ static void draw_span(zxn *n, int wy, int xa, int xb)
 void nx_video_run(zxn *n, uint64_t upto_clk)
 {
     const nx_timing *t = &n->tm;
-    int64_t total = (int64_t)t->hc * t->vc;
-    int64_t base = (int64_t)t->int_v * t->hc + t->int_h + 1;
-    int64_t target, p;
+    /* A frame is under 2^18 pixels, so all of this fits 32 bits: no 64-bit
+     * divides, which a 68040 does in a library call. */
+    int32_t total = (int32_t)t->hc * t->vc;
+    int32_t base = ((int32_t)t->int_v * t->hc + t->int_h + 1) % total;
+    int32_t target, p;
+    uint64_t d;
 
     if (upto_clk <= n->frame_start)
         return;
-    target = (int64_t)((upto_clk - n->frame_start) >> 2);
-    if (target > total)
-        target = total;
-    p = (int64_t)n->video_pix;
+    d = (upto_clk - n->frame_start) >> 2;
+    target = d > (uint64_t)total ? total : (int32_t)d;
+    p = (int32_t)n->video_pix;
     while (p < target) {
-        int64_t raw = (base + p) % total;
-        int vc = (int)(raw / t->hc), h = (int)(raw % t->hc);
-        int64_t run = t->hc - h;
-        int wy = vc - t->min_vactive + 32;
+        int32_t raw = base + p;
+        int vc, h;
+        int32_t run;
+        int wy;
+        if (raw >= total)
+            raw -= total;
+        vc = (int)(raw / t->hc);
+        h = (int)(raw - (int32_t)vc * t->hc);
+        run = t->hc - h;
+        wy = vc - t->min_vactive + 32;
         if (run > target - p)
             run = target - p;
         if (wy >= 0 && wy < NX_H) {

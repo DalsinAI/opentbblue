@@ -35,6 +35,10 @@ opentbblue: $(OWN) $(CORE) $(NET) $(HDRS)
 tests/setup_test: tests/setup_test.c src/setup.c src/setup.h
 	$(CC) $(CFLAGS) tests/setup_test.c src/setup.c $(LDLIBS) -o $@
 
+# Frame-for-frame hashes, for comparing two builds (tests/compare.sh).
+tests/frames: tests/frames.c $(CORE) $(HDRS)
+	$(CC) $(CFLAGS) tests/frames.c $(CORE) $(LDLIBS) -o $@
+
 test: tests/setup_test
 	./tests/setup_test
 
@@ -57,6 +61,6 @@ install: opentbblue
 	install -D -m 755 opentbblue $(DESTDIR)$(PREFIX)/bin/opentbblue
 
 clean:
-	rm -f opentbblue opentbblue.exe opentbblue.68k tests/setup_test
+	rm -f opentbblue opentbblue.exe opentbblue.68k tests/setup_test tests/frames
 
 .PHONY: all test amiga install clean
