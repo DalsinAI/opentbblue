@@ -1,29 +1,62 @@
 # OpenTBBlue
 
-A ZX Spectrum Next (TBBlue) emulator in one window, for Linux, Windows,
-macOS and AmigaOS 3.2 (68040).
+**The ZX Spectrum Next, in one window, on Linux, Windows, macOS and AmigaOS 3.2 (68040).**
 
-There's nothing to set up. On the first run OpenTBBlue downloads the latest
-official Next software distribution
+![NextZXOS's main menu in OpenTBBlue, with the control bar underneath](docs/screenshots/menu.png)
+
+I've loved the Spectrum for more than 40 years. Rubber keys, loading
+screens that took forever to draw themselves in, typing in listings from
+magazines and hunting down the one typo that broke everything. That little
+black box is the reason I do what I do. When the ZX Spectrum Next came along
+I bought one, of course I did, and it's been sitting on my desk making me
+smile ever since.
+
+OpenTBBlue is my love letter to it. I wanted the Next with me everywhere: on
+my PC, on a Mac, and, because why not, on my Amiga too. Building this has
+been an absolute joy. Every time NextZXOS booted a little further, every time
+the stripes appeared in the right colours, every time a game I remember
+burst into life, I had a huge grin on my face. I hope it gives you the same.
+
+### Just start it
+
+There's nothing to set up. The very first time you run it, OpenTBBlue goes
+and fetches the latest official Next software
 ([System/Next](https://gitlab.com/thesmog358/tbblue): firmware, NextZXOS,
-ROMs, apps, games and demos) and unpacks it into a folder on your computer.
-That folder becomes the Next's SD card, and the Next boots straight into
-NextZXOS.
+ROMs, apps, games and demos) and puts it in a folder on your computer. That
+folder is your Next's SD card, and the Next boots straight into NextZXOS.
 
-The Next is modelled on its official FPGA sources: the Z80N at 3.5, 7, 14
-and 28 MHz, memory and paging, every nextreg, the ULA, LoRes, Timex modes,
-the tilemap, Layer 2 and sprites with the mixer, the copper, DMA, CTC, IM2,
-divMMC automap, three AYs, the DACs, both UARTs, a Kempston mouse and
-joystick, ESP8266 wifi through your computer's network, and a Raspberry Pi
-(NextPi) with its files in a host folder. The machine core comes from
+![The "Welcome to NextZXOS!" screen on the first boot](docs/screenshots/welcome.png)
+
+And when a newer System/Next comes out, OpenTBBlue spots it, lights up the
+card button and offers to fetch it for you. Put it on your card, or on a
+brand new card so you can keep the old one. No faffing about with downloads
+and SD card readers.
+
+![The card panel: System/Next updates and the two SD card slots](docs/screenshots/cards.png)
+
+### A real Next inside
+
+It's built from the Next's official FPGA sources, so it behaves like the
+machine on my desk: the Z80N at 3.5, 7, 14 and 28 MHz, memory and paging,
+every nextreg, the ULA, LoRes, Timex modes, the tilemap, Layer 2 and sprites
+with the mixer, the copper, DMA, CTC, IM2, divMMC automap, three AYs, the
+DACs, both UARTs, a Kempston mouse and joystick, ESP8266 wifi through your
+computer's network, and a Raspberry Pi (NextPi) with its files in a folder.
+The machine core comes from
 [ZxNextEmu](https://github.com/DalsinAI/ZxNextEmu).
 
-**Download:** [the latest release](https://github.com/DalsinAI/opentbblue/releases)
-(now 0.1.0-rc1, the first release candidate) has an installer for each system.
-
-It is quick on small machines too: on a 68040 Amiga it runs NextZXOS at 160%
+And yes, it really does run on an Amiga. On a 68040 it runs NextZXOS at 160%
 of a real Next's speed with no window, and at full speed in a window
-(figures in [docs/Amiga.md](docs/Amiga.md)).
+(figures in [docs/Amiga.md](docs/Amiga.md)). Two of my favourite machines
+of all time, together at last.
+
+![OpenTBBlue on an Amiga, NextZXOS in a window on the Workbench](docs/screenshots/amiga.png)
+
+![NextBASIC: 10 PRINT, the way it always started](docs/screenshots/basic.png)
+
+**Download it:** [the latest release](https://github.com/DalsinAI/opentbblue/releases)
+(now 0.1.0-rc1, the first release candidate) has an installer for every
+system. Go on, type `10 PRINT` again. You know you want to.
 
 ## Installing
 
