@@ -219,7 +219,7 @@ static void step(uint16_t *p, uint8_t mode)
 int nx_dma_run(zxn *n)
 {
     nx_dma *d = &n->dma;
-    uint64_t start;
+    nx_clk start;
     uint8_t v;
     int src_io = d->dir_atob ? d->a_io : d->b_io, dst_io = d->dir_atob ? d->b_io : d->a_io;
 
@@ -248,7 +248,7 @@ int nx_dma_run(zxn *n)
     step(&d->src, d->dir_atob ? d->a_mode : d->b_mode);
     step(&d->dst, d->dir_atob ? d->b_mode : d->a_mode);
     d->at_least_one = 1;
-    d->next_clk = d->prescaler ? start + (uint64_t)d->prescaler * 32 : 0;
+    d->next_clk = d->prescaler ? start + (nx_clk)d->prescaler * 32 : 0;
 
     if (d->counter >= d->len) {
         d->end_of_block_n = 0;

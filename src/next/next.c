@@ -54,12 +54,12 @@ static void set_timing(zxn *n)
 }
 
 /* ULA position of a 7 MHz pixel counted from the frame start. */
-static void ula_pos(const zxn *n, uint64_t pix, int *hc_ula, int *vc_ula)
+static void ula_pos(const zxn *n, nx_clk pix, int *hc_ula, int *vc_ula)
 {
     const nx_timing *t = &n->tm;
-    int64_t total = (int64_t)t->hc * t->vc;
-    int64_t idx = (int64_t)t->int_v * t->hc + t->int_h + 1 + (int64_t)(pix % (uint64_t)total);
-    idx -= (int64_t)t->min_vactive * t->hc + t->min_hactive - 11;
+    int32_t total = (int32_t)t->hc * t->vc;
+    int32_t idx = (int32_t)t->int_v * t->hc + t->int_h + 1 + (int32_t)(pix % (nx_clk)total);
+    idx -= (int32_t)t->min_vactive * t->hc + t->min_hactive - 11;
     idx %= total;
     if (idx < 0)
         idx += total;
@@ -68,13 +68,13 @@ static void ula_pos(const zxn *n, uint64_t pix, int *hc_ula, int *vc_ula)
 }
 
 /* Pixel (from frame start) at which the ULA counters reach (hc, vc). */
-static int64_t ula_pix(const zxn *n, int hc, int vc)
+static int32_t ula_pix(const zxn *n, int hc, int vc)
 {
     const nx_timing *t = &n->tm;
-    int64_t total = (int64_t)t->hc * t->vc;
-    int64_t idx = (int64_t)vc * t->hc + hc;
-    idx += (int64_t)t->min_vactive * t->hc + t->min_hactive - 11;
-    idx -= (int64_t)t->int_v * t->hc + t->int_h + 1;
+    int32_t total = (int32_t)t->hc * t->vc;
+    int32_t idx = (int32_t)vc * t->hc + hc;
+    idx += (int32_t)t->min_vactive * t->hc + t->min_hactive - 11;
+    idx -= (int32_t)t->int_v * t->hc + t->int_h + 1;
     idx %= total;
     if (idx < 0)
         idx += total;
@@ -340,7 +340,7 @@ static int port_enabled(const zxn *n, int bit)
 }
 
 /* Bring video and audio up to the present before a change that affects them. */
-static void audio_run(zxn *n, uint64_t upto);
+static void audio_run(zxn *n, nx_clk upto);
 
 static void sync_video(zxn *n)
 {
@@ -372,12 +372,12 @@ static int pulse_len(const zxn *n)
     return (k == T48 || k == TP3) ? 32 : 36;
 }
 
-static void start_pulse(zxn *n, uint64_t t)
+static void start_pulse(zxn *n, nx_clk t)
 {
     if (t < n->pulse_end)
         return;
     n->pulse_start = t;
-    n->pulse_end = t + (uint64_t)pulse_len(n) * n->tick;
+    n->pulse_end = t + (nx_clk)pulse_len(n) * n->tick;
 }
 
 static int source_enabled(const zxn *n, int src)
@@ -399,7 +399,7 @@ static int source_enabled(const zxn *n, int src)
     return 0;
 }
 
-static void raise_int_at(zxn *n, int src, int unq, uint64_t t)
+static void raise_int_at(zxn *n, int src, int unq, nx_clk t)
 {
     int en = source_enabled(n, src);
     int im2hw = n->nr_c0 & 1;
@@ -417,7 +417,7 @@ static void raise_int_at(zxn *n, int src, int unq, uint64_t t)
     }
 }
 
-void nx_raise_int(zxn *n, int src, uint64_t t)
+void nx_raise_int(zxn *n, int src, nx_clk t)
 {
     raise_int_at(n, src, 0, t);
 }
@@ -512,14 +512,14 @@ static void schedule_line_int(zxn *n)
     const nx_timing *t = &n->tm;
     int line = n->line_int == 0 ? t->vc - 1 : n->line_int - 1;
     int vc_ula = ((line - n->copper_offset) % t->vc + t->vc) % t->vc;
-    int64_t pix;
+    int32_t pix;
     if (n->line_int >= t->vc && n->line_int != 0) {
-        n->line_int_clk = ~(uint64_t)0;
+        n->line_int_clk = NX_NEVER;
         n->ev_next = 0;
         return;
     }
     pix = ula_pix(n, 255, vc_ula);
-    n->line_int_clk = n->frame_start + (uint64_t)pix * 4;
+    n->line_int_clk = n->frame_start + (nx_clk)pix * 4;
     if (n->line_int_clk < n->clk)
         n->line_int_clk += n->frame_ticks;
     n->ev_next = 0;
@@ -569,11 +569,11 @@ static void ctc_trigger(zxn *n, int ch)
         ctc_count(n, ch);
 }
 
-static void ctc_advance(zxn *n, uint64_t upto)
+static void ctc_advance(zxn *n, nx_clk upto)
 {
     for (;;) {
         int i, best = -1;
-        uint64_t t = upto + 1;
+        nx_clk t = upto + 1;
         for (i = 0; i < 4; i++) {
             nx_ctc *c = &n->ctc[i];
             if (ctc_running(c) && !(c->control & 8) && c->next <= t) {
@@ -584,7 +584,7 @@ static void ctc_advance(zxn *n, uint64_t upto)
         if (best < 0 || t > upto)
             return;
         {
-            uint64_t save = n->clk;
+            nx_clk save = n->clk;
             nx_ctc *c = &n->ctc[best];
             n->clk = t;
             c->next += ctc_prescale(c);
@@ -594,9 +594,9 @@ static void ctc_advance(zxn *n, uint64_t upto)
     }
 }
 
-static uint64_t ctc_next_event(const zxn *n)
+static nx_clk ctc_next_event(const zxn *n)
 {
-    uint64_t t = ~(uint64_t)0;
+    nx_clk t = NX_NEVER;
     int i;
     for (i = 0; i < 4; i++) {
         const nx_ctc *c = &n->ctc[i];
@@ -1240,16 +1240,16 @@ static inline int contention_active(const zxn *n)
 static uint32_t contend_delay(const zxn *n)
 {
     const zx_timing *tm = classic_timing(n);
-    int64_t t, c0, d;
+    int32_t t, c0, d;
     uint32_t x;
     if (!tm)
         return 0;
-    t = (int64_t)((n->clk - n->frame_start) >> 3);
-    c0 = (int64_t)tm->contend_t - (int64_t)(64 - n->tm.min_vactive) * tm->line_t;
+    t = (int32_t)((n->clk - n->frame_start) >> 3);
+    c0 = (int32_t)tm->contend_t - (int32_t)(64 - n->tm.min_vactive) * tm->line_t;
     if (t < c0)
         return 0;
     d = t - c0;
-    if (d >= 192 * (int64_t)tm->line_t)
+    if (d >= 192 * (int32_t)tm->line_t)
         return 0;
     x = (uint32_t)d % tm->line_t;   /* d is under 192 lines: 32-bit maths */
     if (x >= 128)
@@ -1261,12 +1261,12 @@ static uint32_t contend_delay(const zxn *n)
  * out keeps the bus functions small enough to inline into the Z80 core. */
 static __attribute__((noinline)) void contend(zxn *n)
 {
-    n->clk += (uint64_t)contend_delay(n) << 3;
+    n->clk += (nx_clk)contend_delay(n) << 3;
 }
 
 /* ---- events that fall due as time passes -------------------------------- */
 
-static void copper_run(zxn *n, uint64_t upto);
+static void copper_run(zxn *n, nx_clk upto);
 
 /* Every bus cycle asks whether something falls due. Mostly nothing does,
  * so the earliest due time is kept in ev_next and the full look is only
@@ -1275,7 +1275,7 @@ static void copper_run(zxn *n, uint64_t upto);
  * UARTs, a reset, a new frame) sets ev_next to 0. */
 static void events_due(zxn *n)
 {
-    uint64_t t;
+    nx_clk t;
     if (n->clk >= n->line_int_clk) {
         raise_int_at(n, SRC_LINE, 0, n->line_int_clk);
         n->line_int_clk += n->frame_ticks;
@@ -1807,7 +1807,7 @@ static void b_internal(void *ctx, uint16_t addr, unsigned cycles)
             n->clk += n->tick;
         }
     } else {
-        n->clk += (uint64_t)cycles * n->tick;
+        n->clk += (nx_clk)cycles * n->tick;
     }
 }
 
@@ -1815,7 +1815,7 @@ static void b_tick(void *ctx, unsigned cycles)
 {
     zx *m = ctx;
     zxn *n = m->next;
-    n->clk += (uint64_t)cycles * n->tick;
+    n->clk += (nx_clk)cycles * n->tick;
 }
 
 /* I/O cycle timing: the classic ULA patterns, at 3.5 MHz on 48K/128K timing. */
@@ -1918,7 +1918,7 @@ static void b_nextreg(void *ctx, uint8_t reg, uint8_t v)
 
 /* ---- copper execution ---------------------------------------------------- */
 
-#define NEVER (~(uint64_t)0)
+#define NEVER (NX_NEVER)
 
 static int cvc_now(zxn *n)
 {
@@ -1931,35 +1931,35 @@ static void copper_restart_point(zxn *n)
 {
     const nx_timing *t = &n->tm;
     int vc_ula = ((0 - n->copper_offset) % t->vc + t->vc) % t->vc;
-    uint64_t r = n->frame_start + (uint64_t)ula_pix(n, 0, vc_ula) * 4;
+    nx_clk r = n->frame_start + (nx_clk)ula_pix(n, 0, vc_ula) * 4;
     while (r < n->clk)
         r += n->frame_ticks;
     n->cu_restart = r;
 }
 
 /* First tick at or after `from` when a WAIT for (cvc, hc_ula) is satisfied. */
-static uint64_t wait_time(const zxn *n, uint16_t ins, uint64_t from)
+static nx_clk wait_time(const zxn *n, uint16_t ins, nx_clk from)
 {
     const nx_timing *t = &n->tm;
     int v = ins & 0x1ff, h = ((ins >> 9) & 63) * 8 + 12;
-    int64_t total = (int64_t)t->hc * t->vc, len, s, rel, p;
+    int32_t total = (int32_t)t->hc * t->vc, len, s, rel, p;
     int vct;
     if (v >= t->vc || h >= t->hc)
         return NEVER;
     vct = ((v - n->copper_offset) % t->vc + t->vc) % t->vc;
     s = ula_pix(n, h, vct);
     len = t->hc - h;
-    p = (int64_t)((from - n->frame_start) >> 2);
+    p = (int32_t)((from - n->frame_start) >> 2);
     rel = p % total;
     if (((rel - s) % total + total) % total < len)
         return from;
     p += ((s - rel) % total + total) % total;
-    return n->frame_start + (uint64_t)p * 4;
+    return n->frame_start + (nx_clk)p * 4;
 }
 
-static void copper_run(zxn *n, uint64_t upto)
+static void copper_run(zxn *n, nx_clk upto)
 {
-    uint64_t save = n->clk;
+    nx_clk save = n->clk;
     while (n->copper_mode && n->cu_clk <= upto) {
         uint16_t ins;
         if (n->copper_mode == 3 && n->cu_restart <= n->cu_clk) {
@@ -1968,7 +1968,7 @@ static void copper_run(zxn *n, uint64_t upto)
         }
         ins = n->copper[n->cu_pc];
         if (ins & 0x8000) {
-            uint64_t t = wait_time(n, ins, n->cu_clk);
+            nx_clk t = wait_time(n, ins, n->cu_clk);
             if (n->copper_mode == 3 && t > n->cu_restart)
                 t = n->cu_restart;
             if (t != n->cu_clk) {
@@ -1984,7 +1984,7 @@ static void copper_run(zxn *n, uint64_t upto)
             nr_write(n, (uint8_t)(ins >> 8 & 0x7f), (uint8_t)ins);
         } else {
             /* a run of NOPs: one tick each */
-            uint64_t k = 1, avail = upto - n->cu_clk + 1;
+            nx_clk k = 1, avail = upto - n->cu_clk + 1;
             while (k < 1024 && !(n->copper[(n->cu_pc + k) & 1023] & 0xff00))
                 k++;
             if (k == 1024)
@@ -2006,7 +2006,7 @@ static void copper_run(zxn *n, uint64_t upto)
 
 #define NX_MASTER_HZ 28000000u
 
-static void audio_accumulate(zxn *n, uint64_t dt)
+static void audio_accumulate(zxn *n, nx_clk dt)
 {
     int32_t ear = (n->port_fe & 0x10) ? 512 : 0, mic = (n->port_fe & 0x08) ? 128 : 0;
     int32_t tape = n->m->ear_in ? 128 : 0;
@@ -2015,7 +2015,7 @@ static void audio_accumulate(zxn *n, uint64_t dt)
     n->acc_l += (int64_t)l * (int64_t)dt;
     n->acc_r += (int64_t)r * (int64_t)dt;
     if ((n->nr_06 & 3) != 3) {
-        uint64_t c = (n->ay_div + dt) >> 4;   /* AY clock: 28 MHz / 16 */
+        nx_clk c = (n->ay_div + dt) >> 4;   /* AY clock: 28 MHz / 16 */
         int i;
         n->ay_div = (uint32_t)((n->ay_div + dt) & 15);
         while (c) {
@@ -2030,7 +2030,7 @@ static void audio_accumulate(zxn *n, uint64_t dt)
 static void audio_sample(zxn *n)
 {
     zx *m = n->m;
-    uint64_t span = n->audio_next - n->audio_prev;
+    nx_clk span = n->audio_next - n->audio_prev;
     int32_t l, r, ch[3];
     int i;
 
@@ -2065,12 +2065,14 @@ static void audio_sample(zxn *n)
     }
 }
 
-static void audio_run(zxn *n, uint64_t upto)
+static void audio_run(zxn *n, nx_clk upto)
 {
-    const uint64_t step = ((uint64_t)NX_MASTER_HZ << 32) / ZX_AUDIO_RATE;
+    /* ticks per sample in 32.32: whole part and fraction, worked out once */
+    static const uint32_t step_whole = NX_MASTER_HZ / ZX_AUDIO_RATE;
+    static const uint32_t step_frac = (uint32_t)((((uint64_t)(NX_MASTER_HZ % ZX_AUDIO_RATE)) << 32) / ZX_AUDIO_RATE);
     for (;;) {
-        uint64_t next = n->audio_next;
-        uint64_t end = next < upto ? next : upto;
+        nx_clk next = n->audio_next;
+        nx_clk end = next < upto ? next : upto;
         if (end > n->audio_clk) {
             audio_accumulate(n, end - n->audio_clk);
             n->audio_clk = end;
@@ -2079,9 +2081,8 @@ static void audio_run(zxn *n, uint64_t upto)
             return;
         audio_sample(n);
         n->audio_prev = next;
-        n->audio_frac += step & 0xffffffffu;
-        n->audio_next += (step >> 32) + (n->audio_frac >> 32);
-        n->audio_frac &= 0xffffffffu;
+        n->audio_frac += step_frac;
+        n->audio_next += step_whole + (n->audio_frac < step_frac);
     }
 }
 
@@ -2401,10 +2402,53 @@ static void new_frame(zxn *n)
     copper_restart_point(n);
 }
 
+/*
+ * Keep the 32-bit clock low: once a frame starts past twice NX_CLK_REBASE,
+ * move every stored time back so the frame starts at NX_CLK_REBASE. All
+ * differences under NX_CLK_REBASE (about 9.6 s) stay exact; anything older
+ * (a CTC or UART time long gone, a DMA burst that never went) becomes 0,
+ * which every user reads the same way: in the past. NX_NEVER stays.
+ */
+#ifndef NX_CLK_REBASE
+#define NX_CLK_REBASE ((nx_clk)1 << 28)
+#endif
+
+static void clk_back(nx_clk *t, nx_clk d)
+{
+    if (*t != NX_NEVER)
+        *t = *t > d ? *t - d : 0;
+}
+
+static void clk_rebase(zxn *n)
+{
+    nx_clk d = n->frame_start - NX_CLK_REBASE;
+    int i;
+    clk_back(&n->clk, d);
+    clk_back(&n->frame_start, d);
+    clk_back(&n->cu_clk, d);
+    clk_back(&n->cu_restart, d);
+    clk_back(&n->pulse_start, d);
+    clk_back(&n->pulse_end, d);
+    clk_back(&n->line_int_clk, d);
+    clk_back(&n->uart_next, d);
+    clk_back(&n->audio_clk, d);
+    clk_back(&n->audio_next, d);
+    clk_back(&n->audio_prev, d);
+    if (n->dma.next_clk)
+        clk_back(&n->dma.next_clk, d);
+    for (i = 0; i < 4; i++)
+        clk_back(&n->ctc[i].next, d);
+    for (i = 0; i < 2; i++) {
+        clk_back(&n->uart[i].tx_done, d);
+        clk_back(&n->uart[i].rx_free, d);
+    }
+    n->ev_next = 0;
+}
+
 void nx_run_frame(zx *m)
 {
     zxn *n = m->next;
-    uint64_t end = n->frame_start + n->frame_ticks;
+    nx_clk end = n->frame_start + n->frame_ticks;
 
     n->ev_next = 0;
     m->audio_samples = 0;
@@ -2449,6 +2493,8 @@ void nx_run_frame(zx *m)
     nx_sd_tick(n->sd[1]);
 
     n->frame_start = end;
+    if (n->frame_start >= 2 * NX_CLK_REBASE)
+        clk_rebase(n);
     n->frames++;
     m->frames++;
     new_frame(n);
