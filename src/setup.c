@@ -15,6 +15,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#if defined(__AMIGA__) || defined(__amigaos__)
+#include <proto/dos.h>
+#endif
 
 #ifdef _WIN32
 #include <direct.h>
@@ -75,12 +78,24 @@ int otb_mkdirs(const char *path)
     return 0;
 }
 
+/* OPENTBBLUE_HOME. On AmigaOS libnix's getenv() sees only Set (local)
+ * variables, so dos.library's GetVar() is asked: it finds a SetEnv one too. */
+static const char *home_var(void)
+{
+#if defined(__AMIGA__) || defined(__amigaos__)
+    static char v[512];
+    return GetVar((STRPTR)"OPENTBBLUE_HOME", (STRPTR)v, sizeof v, 0) > 0 ? v : NULL;
+#else
+    return getenv("OPENTBBLUE_HOME");
+#endif
+}
+
 const char *otb_home(void)
 {
     const char *e;
     if (home[0])
         return home;
-    if ((e = getenv("OPENTBBLUE_HOME")) && *e)
+    if ((e = home_var()) && *e)
         snprintf(home, sizeof home, "%s", e);
 #if defined(_WIN32)
     else if ((e = getenv("APPDATA")) && *e)
