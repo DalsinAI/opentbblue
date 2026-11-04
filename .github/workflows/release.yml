@@ -172,14 +172,19 @@ jobs:
           # with no Homebrew SDL on the path, as on a user's Mac
           brew unlink sdl3 sdl2-compat >/dev/null 2>&1 || true
           run() {   # run CMD..., and if it has not finished in 20 s, show where it waits
-            "$@" & pid=$!
+            "$@" > /tmp/otb-out.txt 2>&1 & pid=$!
             for i in $(seq 20); do kill -0 $pid 2>/dev/null || break; sleep 1; done
             if kill -0 $pid 2>/dev/null; then
-              echo "still running after 20 s: $*"; sample $pid 2 -mayDie 2>&1 | head -80; kill -9 $pid; return 1
+              echo "still running after 20 s: $*"
+              grep -i -E 'sdl|opentbblue' /tmp/otb-out.txt | head -20
+              env -u DYLD_PRINT_LIBRARIES sample $pid 2 2>&1 | grep -v '^ *$' | sed -n '1,120p'
+              kill -9 $pid; return 1
             fi
-            wait $pid
+            wait $pid && rc=0 || rc=$?
+            grep -v '^dyld' /tmp/otb-out.txt; grep -i -E 'dyld.*(sdl|opentbblue)' /tmp/otb-out.txt | head
+            return $rc
           }
-          run ./opentbblue --version || true
+          run ./opentbblue --version || echo "the built program did not start either"
           DYLD_PRINT_LIBRARIES=1 run /tmp/otb-dmg/OpenTBBlue.app/Contents/MacOS/opentbblue --version
           hdiutil detach /tmp/otb-dmg
       - uses: actions/upload-artifact@v4
