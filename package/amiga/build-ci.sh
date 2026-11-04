@@ -23,6 +23,7 @@ SDK_COMMIT=a7384f334c3eb64b30dd27cc5a6f480d72471f74
 RTG_COMMIT=8850c2856c79f66280b341346856aacbece06f0c
 
 mkdir -p "$WORK" "$DIST"
+DIST=$(CDPATH= cd -- "$DIST" && pwd)   # the archive is made from another folder
 cd "$WORK"
 
 # 1. The toolchain.
