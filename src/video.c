@@ -45,12 +45,27 @@ static int bar_below(void)
     return bst.pinned && !bst.fullscreen;
 }
 
+/* Frames still to draw whole after the window changed. A full-screen switch
+ * opens a new screen and window (on AmigaOS, SDL2.module), and a frame drawn
+ * before that has settled is lost; a still picture would then never be
+ * drawn again. */
+static int settle;
+
 static void set_logical(void)
 {
     SDL_RenderSetLogicalSize(ren, ZX_SCREEN_W, ZX_SCREEN_H + (bar_below() ? BAR_H : 0));
     force = 1;
     bar_dirty = 1;
+    panel_dirty = 1;
+    settle = 50;
 }
+
+#if defined(__AMIGA__) || defined(__amigaos__)
+static int amiga_start_big;
+#include <proto/intuition.h>
+#include <intuition/screens.h>
+void otb_video_fullscreen(void);
+#endif
 
 static void size_window(void)
 {
@@ -74,6 +89,12 @@ int otb_video_open(zx *m, const char *title, int scale, int fullscreen, int pinn
     bst.scale = scale;
     bst.pinned = pinned;
     bst.fullscreen = fullscreen;
+#if defined(__AMIGA__) || defined(__amigaos__)
+    /* full screen is a big window there (otb_video_fullscreen) */
+    amiga_start_big = fullscreen;
+    fullscreen = 0;
+    bst.fullscreen = 0;
+#endif
     win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                            ZX_SCREEN_W * scale, (ZX_SCREEN_H + (bar_below() ? BAR_H : 0)) * scale,
                            SDL_WINDOW_RESIZABLE | (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
@@ -115,6 +136,10 @@ int otb_video_open(zx *m, const char *title, int scale, int fullscreen, int pinn
     audio_frame_bytes = ZX_AUDIO_RATE / 50 * 4;
     if (dev)
         SDL_PauseAudioDevice(dev, 0);
+#if defined(__AMIGA__) || defined(__amigaos__)
+    if (amiga_start_big)
+        otb_video_fullscreen();
+#endif
     return 0;
 }
 
@@ -123,6 +148,68 @@ void otb_video_title(const char *title)
     SDL_SetWindowTitle(win, title);
 }
 
+#if defined(__AMIGA__) || defined(__amigaos__)
+/* AmigaOS: full screen is the window at the biggest size the Workbench
+ * screen holds, in the middle of it. SDL2.module's own full-screen screen
+ * showed the picture blown up past the screen (only its grey corner), so
+ * the window stays on the Workbench screen; F11 or the button again puts it
+ * back at the size it had. */
+static int amiga_big, amiga_scale;
+
+/* The Workbench screen's size, from Intuition: SDL2.module's display
+ * calls did not give it reliably. */
+static int amiga_screen(int *w, int *h)
+{
+    struct Screen *scr = LockPubScreen(NULL);
+    if (!scr)
+        return -1;
+    *w = scr->Width;
+    *h = scr->Height;
+    UnlockPubScreen(NULL, scr);
+    return 0;
+}
+
+void otb_video_fullscreen(void)
+{
+    int sw, sh, s, h = ZX_SCREEN_H + (bar_below() ? BAR_H : 0);
+    if (amiga_big) {
+        amiga_big = 0;
+        bst.scale = amiga_scale;
+        size_window();
+        SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        bar_dirty = 1;
+        force = 1;
+        settle = 50;
+        return;
+    }
+    if (amiga_screen(&sw, &sh))
+        return;
+    /* as big as fits, keeping the shape, with room for the window's
+     * borders and the screen's title bar */
+    {
+        double fw = (double)(sw - 24) / ZX_SCREEN_W, fh = (double)(sh - 64) / h;
+        double f = fw < fh ? fw : fh;
+        if (f < 1)
+            f = 1;
+        amiga_scale = bst.scale;
+        amiga_big = 1;
+        s = (int)f;
+        bst.scale = s;
+        SDL_SetWindowSize(win, (int)(ZX_SCREEN_W * f), (int)(h * f));
+        /* in the middle (SDL2.module leaves a CENTERED window where it was;
+         * the room left keeps the window and its borders on the screen,
+         * or Intuition will not move it) */
+        {
+            int x = (sw - (int)(ZX_SCREEN_W * f)) / 2, y = (sh - (int)(h * f)) / 2;
+            SDL_SetWindowPosition(win, x > 0 ? x : 0, y > 0 ? y : 0);
+        }
+        bar_dirty = 1;
+        force = 1;
+        settle = 50;
+    }
+    printf("opentbblue: full screen: %dx%d screen, scale %d\n", sw, sh, s);
+}
+#else
 void otb_video_fullscreen(void)
 {
     uint32_t f = SDL_GetWindowFlags(win);
@@ -132,6 +219,7 @@ void otb_video_fullscreen(void)
     if (!bst.fullscreen)
         size_window();
 }
+#endif
 
 void otb_video_scale(int step)
 {
@@ -363,9 +451,22 @@ static void present(void)
     SDL_RenderPresent(ren);
 }
 
+/* While the window settles, the whole picture each frame. */
+static void settling(void)
+{
+    if (settle > 0) {
+        settle--;
+        force = 1;
+        bar_dirty = 1;
+        panel_dirty = panel_on;
+    }
+}
+
 void otb_video_idle(void)
 {
-    int moved = bar_step();
+    int moved;
+    settling();
+    moved = bar_step();
     SDL_Delay(20);
     if (moved || bar_dirty || panel_dirty || force) {
         force = 0;
@@ -376,6 +477,8 @@ void otb_video_idle(void)
 void otb_video_redraw(void)
 {
     force = 1;
+    if (settle < 10)
+        settle = 10;
 }
 
 void otb_video_turbo(int on)
@@ -450,6 +553,7 @@ void otb_video_frame(zx *m, int turbo)
         return;
     }
     skipped = 0;
+    settling();
     {
         int moved = bar_step();
         otb_lines_converted += (unsigned long)convert(m, &y0, &y1);
