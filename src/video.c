@@ -60,6 +60,11 @@ static void set_logical(void)
     settle = 50;
 }
 
+#if defined(__AMIGA__) || defined(__amigaos__)
+static int amiga_start_big;
+void otb_video_fullscreen(void);
+#endif
+
 static void size_window(void)
 {
     if (!bst.fullscreen)
@@ -82,6 +87,12 @@ int otb_video_open(zx *m, const char *title, int scale, int fullscreen, int pinn
     bst.scale = scale;
     bst.pinned = pinned;
     bst.fullscreen = fullscreen;
+#if defined(__AMIGA__) || defined(__amigaos__)
+    /* full screen is a big window there (otb_video_fullscreen) */
+    amiga_start_big = fullscreen;
+    fullscreen = 0;
+    bst.fullscreen = 0;
+#endif
     win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                            ZX_SCREEN_W * scale, (ZX_SCREEN_H + (bar_below() ? BAR_H : 0)) * scale,
                            SDL_WINDOW_RESIZABLE | (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
@@ -123,6 +134,10 @@ int otb_video_open(zx *m, const char *title, int scale, int fullscreen, int pinn
     audio_frame_bytes = ZX_AUDIO_RATE / 50 * 4;
     if (dev)
         SDL_PauseAudioDevice(dev, 0);
+#if defined(__AMIGA__) || defined(__amigaos__)
+    if (amiga_start_big)
+        otb_video_fullscreen();
+#endif
     return 0;
 }
 
@@ -131,6 +146,46 @@ void otb_video_title(const char *title)
     SDL_SetWindowTitle(win, title);
 }
 
+#if defined(__AMIGA__) || defined(__amigaos__)
+/* AmigaOS: full screen is the window at the biggest size the Workbench
+ * screen holds, in the middle of it. SDL2.module's own full-screen screen
+ * showed the picture blown up past the screen (only its grey corner), so
+ * the window stays on the Workbench screen; F11 or the button again puts it
+ * back at the size it had. */
+static int amiga_big, amiga_scale;
+
+void otb_video_fullscreen(void)
+{
+    SDL_DisplayMode dm;
+    int s, h = ZX_SCREEN_H + BAR_H;
+    if (amiga_big) {
+        amiga_big = 0;
+        bst.scale = amiga_scale;
+        size_window();
+        SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        bar_dirty = 1;
+        force = 1;
+        settle = 50;
+        return;
+    }
+    if (SDL_GetDesktopDisplayMode(0, &dm) || dm.w <= 0 || dm.h <= 0)
+        return;
+    /* room for the window's borders and the screen's title bar */
+    s = (dm.w - 16) / ZX_SCREEN_W;
+    if ((dm.h - 40) / h < s)
+        s = (dm.h - 40) / h;
+    if (s < 1)
+        s = 1;
+    amiga_scale = bst.scale;
+    amiga_big = 1;
+    bst.scale = s;
+    size_window();
+    SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+    bar_dirty = 1;
+    force = 1;
+    settle = 50;
+}
+#else
 void otb_video_fullscreen(void)
 {
     uint32_t f = SDL_GetWindowFlags(win);
@@ -140,6 +195,7 @@ void otb_video_fullscreen(void)
     if (!bst.fullscreen)
         size_window();
 }
+#endif
 
 void otb_video_scale(int step)
 {
