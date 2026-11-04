@@ -10,6 +10,7 @@
 #include "../storage/blockdev.h"
 
 #include <errno.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -56,8 +57,18 @@ int zx_init(zx *m, zx_model model, const char *roms_dir)
 
 int zx_attach_sd(zx *m, int slot, const char *path)
 {
+    return zx_attach_sd_size(m, slot, path, 0);
+}
+
+int zx_attach_sd_size(zx *m, int slot, const char *path, unsigned size_mb)
+{
     zx_blockdev *bd;
-    if ((bd = zx_bd_open(path)) == NULL)
+    struct stat st;
+    if (size_mb && !stat(path, &st) && S_ISDIR(st.st_mode))
+        bd = zx_bd_open_folder(path, size_mb);
+    else
+        bd = zx_bd_open(path);
+    if (bd == NULL)
         return -1;
     if (zx_attach_sd_dev(m, slot, bd)) {
         zx_bd_close(bd);

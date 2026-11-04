@@ -341,8 +341,16 @@ int otb_untar(const char *tar, const char *dir, long *files)
 static int run_curl(const char *url, const char *out, int quiet)
 {
     char cmd[3000];
-    snprintf(cmd, sizeof cmd, "curl -fL --retry 3 %s -o \"%s\" \"%s\"",
-             quiet ? "-sS" : "-#", out, url);
+    const char *curl = "curl";
+#ifdef __amigaos__
+    /* The package's own curl, beside the program (Install-OpenTBBlue also
+     * puts it in C: when C: has none). */
+    struct stat st;
+    if (stat("PROGDIR:curl", &st) == 0)
+        curl = "PROGDIR:curl";
+#endif
+    snprintf(cmd, sizeof cmd, "%s -fL --retry 3 %s -o \"%s\" \"%s\"",
+             curl, quiet ? "-sS" : "-#", out, url);
     return system(cmd) == 0 ? 0 : -1;
 }
 
@@ -590,7 +598,10 @@ void otb_settings_defaults(otb_settings *s)
 {
     memset(s, 0, sizeof *s);
     snprintf(s->sd0, sizeof s->sd0, "%s/SD0", OTB_DRIVES);
+    snprintf(s->sd1, sizeof s->sd1, "%s/SD1", OTB_DRIVES);
     snprintf(s->pi, sizeof s->pi, "pi");
+    s->card_mb = 32768;
+    s->bar_pinned = 1;
     s->scale = 3;
     s->fetch = 1;
 }
@@ -620,17 +631,24 @@ int otb_settings_load(otb_settings *s)
                 "# sd0, sd1: the Next's two SD card slots. A folder is used as the card;\n"
                 "#   a .img is kept in media/ and its files written into drives/<name>/,\n"
                 "#   which is then the card. sd0 is filled from the latest System/Next\n"
-                "#   on the first run. sd1 is empty unless you set it.\n"
+                "#   on the first run; sd1 starts empty. Leave sd1 blank for no second card.\n"
                 "sd0=%s\n"
-                "sd1=\n"
+                "sd1=%s\n"
+                "# card_mb: how big a folder card looks to the Next, in MB (64-32768),\n"
+                "#   or 0 to fit its files with room to spare. Each 1 GB of card takes\n"
+                "#   about 0.6 MB of memory (32 GB: about 20 MB per card).\n"
+                "card_mb=%d\n"
                 "# pi: the NextPi's files\n"
                 "pi=%s\n"
                 "# scale: window size (1-6); fullscreen: 1 to start full screen\n"
                 "scale=%d\n"
                 "fullscreen=0\n"
                 "# fetch: 1 to fetch System/Next when the card is empty, 0 never\n"
-                "fetch=1\n",
-                s->sd0, s->pi, s->scale);
+                "fetch=1\n"
+                "# bar: the control bar under the picture, pinned or auto (it comes up\n"
+                "#   at the bottom edge); the pin button on the bar sets this\n"
+                "bar=pinned\n",
+                s->sd0, s->sd1, s->card_mb, s->pi, s->scale);
         return fclose(fp);
     }
     while (fgets(line, sizeof line, fp)) {
@@ -643,12 +661,44 @@ int otb_settings_load(otb_settings *s)
         if (!strcmp(line, "sd0")) snprintf(s->sd0, sizeof s->sd0, "%s", eq + 1);
         else if (!strcmp(line, "sd1")) snprintf(s->sd1, sizeof s->sd1, "%s", eq + 1);
         else if (!strcmp(line, "pi")) snprintf(s->pi, sizeof s->pi, "%s", eq + 1);
+        else if (!strcmp(line, "card_mb")) s->card_mb = atoi(eq + 1);
+        else if (!strcmp(line, "bar")) s->bar_pinned = strcmp(eq + 1, "auto") != 0;
         else if (!strcmp(line, "scale")) s->scale = atoi(eq + 1);
         else if (!strcmp(line, "fullscreen")) s->fullscreen = atoi(eq + 1) != 0;
         else if (!strcmp(line, "fetch")) s->fetch = atoi(eq + 1) != 0;
     }
     fclose(fp);
     return 0;
+}
+
+int otb_settings_put(const char *key, const char *value)
+{
+    char p[1100], q[1110], line[1200];
+    size_t kl = strlen(key);
+    int done = 0;
+    FILE *in, *out;
+    otb_path(p, sizeof p, OTB_SETTINGS);
+    snprintf(q, sizeof q, "%s.new", p);
+    in = fopen(p, "r");
+    out = fopen(q, "wb");
+    if (!out) {
+        if (in) fclose(in);
+        return -1;
+    }
+    while (in && fgets(line, sizeof line, in)) {
+        if (!done && !strncmp(line, key, kl) && (line[kl] == '=' || line[kl] == ' ')) {
+            fprintf(out, "%s=%s\n", key, value);
+            done = 1;
+        } else
+            fputs(line, out);
+    }
+    if (!done)
+        fprintf(out, "%s=%s\n", key, value);
+    if (in) fclose(in);
+    if (fclose(out))
+        return -1;
+    remove(p);
+    return rename(q, p);
 }
 
 void otb_resolve(char *out, size_t size, const char *p)
@@ -669,3 +719,65 @@ void otb_migrate(void)
     if (is_dir(old) && !is_dir(sd0) && otb_mkdirs(drives) == 0 && rename(old, sd0) == 0)
         printf("OpenTBBlue: the SD card folder is now %s\n", sd0);
 }
+
+/* ---- Workbench icons ---------------------------------------------------- */
+
+#ifdef __amigaos__
+#include <dirent.h>
+
+static int file_exists(const char *p)
+{
+    struct stat st;
+    return stat(p, &st) == 0;
+}
+
+/* dir.info from PROGDIR:Icons/icon, unless dir has an icon already. */
+static void give_icon(const char *dir, const char *icon)
+{
+    char from[300], to[1200];
+    size_t n = strlen(dir);
+    if (!n || dir[n - 1] == ':' || dir[n - 1] == '/' || !is_dir(dir))
+        return;
+    snprintf(to, sizeof to, "%s.info", dir);
+    snprintf(from, sizeof from, "PROGDIR:Icons/%s", icon);
+    if (!file_exists(to) && file_exists(from))
+        copy_into(from, to);
+}
+
+void otb_drawer_icons(void)
+{
+    const char *h = otb_home();
+    char p[1100], drives[1100];
+    DIR *d;
+    struct dirent *de;
+    if (!h)
+        return;
+    give_icon(h, strcmp(base_name(h), "OpenTBBlue-data") ? "drawer.info" : "OpenTBBlue-data.info");
+    /* Only the drawers the program keeps: never a drawer inside a card,
+     * whose files are the Next's. */
+    otb_path(drives, sizeof drives, OTB_DRIVES);
+    if ((d = opendir(h)) != NULL) {
+        while ((de = readdir(d)) != NULL) {
+            if (de->d_name[0] == '.')
+                continue;
+            join(p, sizeof p, h, de->d_name);
+            give_icon(p, !strcmp(de->d_name, OTB_DRIVES) ? "drives.info" :
+                         !strcmp(de->d_name, OTB_MEDIA) ? "media.info" : "drawer.info");
+        }
+        closedir(d);
+    }
+    if ((d = opendir(drives)) != NULL) {
+        while ((de = readdir(d)) != NULL) {
+            if (de->d_name[0] == '.')
+                continue;
+            join(p, sizeof p, drives, de->d_name);
+            give_icon(p, "card.info");
+        }
+        closedir(d);
+    }
+}
+#else
+void otb_drawer_icons(void)
+{
+}
+#endif

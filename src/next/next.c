@@ -470,15 +470,34 @@ static void b_reti(void *ctx)
     }
 }
 
+static int mf_is_active(const zxn *n) { return n->mf_enabled || n->mf_nmi_active; }
+
 static void b_retn(void *ctx)
 {
     zx *m = ctx;
     zxn *n = m->next;
-    /* divmmc_retn_seen: drop the automap */
-    if (n->automap_held || n->automap) {
-        n->automap_held = n->automap_hold = 0;
-        n->automap = 0;
+    int mf_active = mf_is_active(n);
+    if (n->stackless_retn) {
+        n->stackless_retn = 0;
+        if (n->nr_c0 & 8) {
+            m->cpu.pc = (uint16_t)(n->retn_msb << 8 | n->retn_lsb);
+            m->cpu.memptr = m->cpu.pc;
+        }
+    }
+    /* multiface: cpu_retn_seen ends its NMI and pages it out */
+    n->mf_nmi_active = 0;
+    if (n->mf_enabled) {
+        n->mf_enabled = 0;
         remap(n);
+    }
+    /* divmmc_retn_seen (only when the multiface was not active): drop the automap */
+    if (!mf_active) {
+        n->div_button_nmi = 0;
+        if (n->automap_held || n->automap) {
+            n->automap_held = n->automap_hold = 0;
+            n->automap = 0;
+            remap(n);
+        }
     }
 }
 
@@ -655,6 +674,84 @@ static void automap_reset(zxn *n)
 {
     n->automap_held = n->automap_hold = 0;
     n->automap = 0;
+    n->div_button_nmi = 0;
+}
+
+/* ---- NMI: multiface and divMMC buttons ---------------------------------- */
+
+static int mf_mode(const zxn *n) { return n->nr_0a >> 6 & 3; }    /* 0 +3, 3 48, else 128 */
+static int mf_io_en(const zxn *n) { return port_enabled(n, 9); }
+static int div_nmi_hold(const zxn *n) { return n->automap || n->div_button_nmi; }
+
+/* A software NMI request (nextreg 0x02 bits 3 and 2), first come first
+ * served, as the nmi_mf / nmi_divmmc process does it. */
+static void nmi_request(zxn *n, int mf, int div)
+{
+    if (n->nmi_mf || n->nmi_divmmc)
+        return;
+    if (mf && !(n->port_e3 & 0x80) && !div_nmi_hold(n))
+        n->nmi_mf = 1;
+    else if (div && !mf_is_active(n))
+        n->nmi_divmmc = 1;
+    else
+        return;
+    /* nmi_state is idle: the button pulse goes to the device and /NMI falls */
+    if (n->nmi_mf && mf_io_en(n)) {
+        n->mf_nmi_active = 1;
+        n->mf_invisible = 0;
+    }
+    if (n->nmi_divmmc && (n->port_en[1] & 1) && (n->nr_0a & 0x10))
+        n->div_button_nmi = 1;
+    n->nmi_state = 1;
+    n->nmi_cpu = 1;
+}
+
+/* The Z80 takes the NMI. The return address it pushes is kept in nextregs
+ * 0xC2/0xC3; with stackless NMI (nextreg 0xC0 bit 3) the push does not
+ * reach memory and the next RETN takes its address from 0xC2/0xC3. */
+static void nmi_ack(zxn *n, zx *m)
+{
+    uint16_t pc = m->cpu.pc, sp = m->cpu.sp;
+    int stackless = (n->nr_c0 >> 3) & 1;
+    uint8_t lo = nx_mem_read(n, (uint16_t)(sp - 2)), hi = nx_mem_read(n, (uint16_t)(sp - 1));
+    z80_nmi(&m->cpu, &m->bus);
+    n->retn_lsb = (uint8_t)pc;
+    n->retn_msb = (uint8_t)(pc >> 8);
+    if (stackless) {
+        nx_mem_write(n, (uint16_t)(sp - 2), lo);
+        nx_mem_write(n, (uint16_t)(sp - 1), hi);
+        n->stackless_retn = 1;
+    }
+}
+
+/* Opcode fetch at 0066 */
+static void nmi_fetch66(zxn *n)
+{
+    if (n->mf_nmi_active && !n->mf_enabled) {
+        n->mf_enabled = 1;          /* fetch_66: the multiface ROM answers this fetch */
+        remap(n);
+    }
+    if (n->nmi_state == 1)
+        n->nmi_state = 2;
+}
+
+/* HOLD lasts while the device holds the NMI off; END then back to IDLE */
+static void nmi_update(zxn *n)
+{
+    if (n->config_mode) {
+        n->nmi_state = 0;
+        n->nmi_mf = n->nmi_divmmc = 0;
+        n->nmi_cpu = 0;
+        return;
+    }
+    if (n->nmi_state == 2) {
+        int hold = n->nmi_mf ? n->mf_nmi_active : n->nmi_divmmc ? div_nmi_hold(n) : 0;
+        if (!hold)
+            n->nmi_state = 3;
+    } else if (n->nmi_state == 3) {
+        n->nmi_mf = n->nmi_divmmc = 0;
+        n->nmi_state = 0;
+    }
 }
 
 static void nr_write(zxn *n, uint8_t reg, uint8_t v)
@@ -673,6 +770,13 @@ static void nr_write(zxn *n, uint8_t reg, uint8_t v)
             n->reset_req = 1;
         if (!(v & 0x10))
             n->nr_da = 0;
+        if (n->nmi_state <= 1) {      /* nmi_accept_cause */
+            if (v & 8) n->nr_02_gen_mf = 1;
+            if (v & 4) n->nr_02_gen_div = 1;
+        }
+        if (!(v & 8)) n->nr_02_gen_mf = 0;
+        if (!(v & 4)) n->nr_02_gen_div = 0;
+        nmi_request(n, (v & 8) && (n->nr_06 & 8), (v & 4) && (n->nr_06 & 0x10));
         break;
     case 0x03:
         n->bootrom_en = 0;
@@ -979,7 +1083,8 @@ static uint8_t nr_read(zxn *n, uint8_t reg)
     switch (reg) {
     case 0x00: return 0x0a;                     /* machine id: ZX Next */
     case 0x01: return 0x32;                     /* core 3.02 */
-    case 0x02: return (uint8_t)(n->nr_02 | ((n->nr_da & 3) ? 0x10 : 0) | (n->reset_type & 3));
+    case 0x02: return (uint8_t)(n->nr_02 | ((n->nr_da & 3) ? 0x10 : 0) | n->nr_02_gen_mf << 3 |
+                                n->nr_02_gen_div << 2 | (n->reset_type & 3));
     case 0x03: return (uint8_t)(n->pal_sub << 7 | n->machine_timing << 4 | n->user_dt_lock << 3 | n->machine_type);
     case 0x05: return (uint8_t)((n->joy0 & 3) << 6 | (n->joy1 & 3) << 4 | (n->joy0 >> 2) << 3 |
                                 n->eff_5060 << 2 | (n->joy1 >> 2) << 1 | n->nr_05_scandouble);
@@ -1229,6 +1334,10 @@ static void automap_fetch(zxn *n, uint16_t a, int pre)
         r3_inst = ep & !valid & timing;
         r3_del = ep & !valid & !timing;
     }
+    if (a == 0x0066 && n->div_button_nmi) {
+        inst |= (n->nr_bb >> 1) & 1;
+        del |= n->nr_bb & 1;
+    }
     if ((a & 0xff00) == 0x3d00 && (n->nr_bb & 0x80))
         r3_inst = 1;
     if (a >= 0x1ff8 && a <= 0x1fff && (n->nr_bb & 0x40))
@@ -1249,6 +1358,8 @@ static void automap_fetch(zxn *n, uint16_t a, int pre)
         /* after the fetch: the held state takes over */
         n->automap_held = n->automap_hold;
         now = n->automap_held;
+        if (n->automap_held)
+            n->div_button_nmi = 0;
     }
     if (now != n->automap) {
         n->automap = (uint8_t)now;
@@ -1363,6 +1474,21 @@ static void port_write(zxn *n, uint16_t port, uint8_t v)
         n->port_eff7_2 = (v >> 2) & 1;
         n->port_eff7_3 = (v >> 3) & 1;
         ports_changed(n, 0, 1);
+    }
+    if (mf_io_en(n)) {
+        int mode = mf_mode(n), p3 = mode == 0;
+        uint8_t en = (mode & 2) ? 0x9f : (mode & 1) ? 0xbf : 0x3f;
+        uint8_t dis = (mode & 2) ? 0x1f : (mode & 1) ? 0x3f : 0xbf;
+        if (lsb == en) {
+            n->mf_nmi_active = 0;
+            if (p3)
+                n->mf_invisible = 1;
+        }
+        if (lsb == dis) {
+            n->mf_nmi_active = 0;
+            if (!p3)
+                n->mf_invisible = 1;
+        }
     }
     switch (lsb) {
     case 0xe3:
@@ -1486,6 +1612,40 @@ static uint8_t port_read(zxn *n, uint16_t port)
             hit = 1;
         }
     }
+    if (mf_io_en(n)) {
+        int mode = mf_mode(n), p3 = mode == 0;
+        int vis = !(n->mf_invisible && mode != 3);
+        uint8_t en = (mode & 2) ? 0x9f : (mode & 1) ? 0xbf : 0x3f;
+        uint8_t dis = (mode & 2) ? 0x1f : (mode & 1) ? 0x3f : 0xbf;
+        if (lsb == en) {
+            if (vis && mode != 3) {     /* mf_port_en: the paging registers */
+                if (p3) {
+                    switch (port >> 12) {
+                    case 0x1: r |= (uint8_t)(n->port_1ffd & 7); break;   /* motor bit not kept */
+                    case 0x7: r |= n->port_7ffd; break;
+                    case 0xd: r |= (uint8_t)(n->port_dffd_6 << 6 | (n->port_dffd & 0x1f)); break;
+                    case 0xe: r |= (uint8_t)(n->port_eff7_3 << 3 | n->port_eff7_2 << 2); break;
+                    default: r |= (uint8_t)(n->port_fe & 7); break;
+                    }
+                } else {
+                    r |= (uint8_t)((n->port_7ffd & 8) << 4 | 0x7f);
+                }
+                hit = 1;
+            }
+            if (n->mf_enabled != vis) {
+                n->mf_enabled = (uint8_t)vis;
+                remap(n);
+            }
+        }
+        if (lsb == dis) {
+            if (p3)
+                n->mf_nmi_active = 0;
+            if (n->mf_enabled) {
+                n->mf_enabled = 0;
+                remap(n);
+            }
+        }
+    }
     switch (lsb) {
     case 0xe3:
         if (port_enabled(n, 8)) {
@@ -1581,6 +1741,8 @@ static uint8_t b_fetch(void *ctx, uint16_t addr)
         n->clk += 4u * n->tick + (n->speed == 3 && sl->wait);
         return v;
     }
+    if (addr == 0x0066)
+        nmi_fetch66(n);
     automap_fetch(n, addr, 1);
     sl = &n->slot[addr >> 13];
     v = sl->rd[addr & 0x1fff];
@@ -1988,6 +2150,12 @@ void nx_soft_reset(zx *m)
     n->mmu[4] = 0x04; n->mmu[5] = 0x05; n->mmu[6] = 0x00; n->mmu[7] = 0x01;
     automap_reset(n);
     n->mf_enabled = 0;
+    n->mf_nmi_active = 0;
+    n->mf_invisible = 1;
+    n->nmi_mf = n->nmi_divmmc = 0;
+    n->nmi_state = n->nmi_cpu = 0;
+    n->nr_02_gen_mf = n->nr_02_gen_div = 0;
+    n->stackless_retn = 0;
 
     memset(n->im2_state, 0, sizeof n->im2_state);
     memset(n->int_status, 0, sizeof n->int_status);
@@ -2217,6 +2385,14 @@ void nx_run_frame(zx *m)
         events(n);
         if (n->dma.active && nx_dma_run(n))
             continue;
+        if (n->nmi_state) {
+            nmi_update(n);
+            if (n->nmi_cpu) {
+                n->nmi_cpu = 0;
+                nmi_ack(n, m);
+                continue;
+            }
+        }
         if (int_line(n) && z80_int_enabled(&m->cpu)) {
             z80_interrupt(&m->cpu, &m->bus);
             continue;

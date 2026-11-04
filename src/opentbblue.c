@@ -29,7 +29,8 @@
  * SHIFT, Ctrl and Alt are SYMBOL SHIFT, and punctuation types what it shows.
  * Backspace is DELETE, the arrows are the cursor keys, Esc is BREAK, Tab is
  * EXTEND MODE. Game controllers are a Kempston joystick.
- * F1 hard reset, F4 soft reset, F9 full speed, F11 full screen, F10 quits.
+ * F1 hard reset, F4 soft reset, F9 full speed, F11 full screen, F10 quits;
+ * the control bar under the picture (bar.c) does the same and more.
  */
 #include <SDL.h>
 #include <sys/stat.h>
@@ -46,6 +47,7 @@
 #include "devices/nextpi.h"
 #include "setup.h"
 #include "video.h"
+#include "bar.h"
 
 #define VERSION "0.1.0"
 
@@ -122,12 +124,14 @@ static const punct puncts[] = {
 /* Shifted digits type their symbols, as on a PC. */
 static const char shifted_digit[10] = { ')', '!', '@', '#', '$', '%', '^', '&', '*', '(' };
 
+static uint8_t pad_joy, key_joy;   /* Kempston bits from a game controller and from the keyboard */
+
 static void rebuild_keys(void)
 {
     uint8_t mat[8][5];
     int shift = held[SDL_SCANCODE_LSHIFT] || held[SDL_SCANCODE_RSHIFT];
-    int sym = held[SDL_SCANCODE_LCTRL] || held[SDL_SCANCODE_RCTRL] ||
-              held[SDL_SCANCODE_LALT] || held[SDL_SCANCODE_RALT];
+    /* Left Ctrl is the joystick's fire button, so SYMBOL SHIFT is the other three */
+    int sym = held[SDL_SCANCODE_RCTRL] || held[SDL_SCANCODE_LALT] || held[SDL_SCANCODE_RALT];
     int symbols = 0, caps, i, r, b;
     memset(mat, 0, sizeof mat);
 
@@ -173,6 +177,13 @@ static void rebuild_keys(void)
     for (r = 0; r < 8; r++)
         for (b = 0; b < 5; b++)
             zx_key(&m, r, b, mat[r][b]);
+
+    /* The arrow keys are also a Kempston joystick (they still send the cursor
+     * keys, which Kempston games ignore), and Left Ctrl is its fire. */
+    key_joy = (uint8_t)((held[SDL_SCANCODE_RIGHT] ? 1 : 0) | (held[SDL_SCANCODE_LEFT] ? 2 : 0) |
+                        (held[SDL_SCANCODE_DOWN] ? 4 : 0) | (held[SDL_SCANCODE_UP] ? 8 : 0) |
+                        (held[SDL_SCANCODE_LCTRL] ? 16 : 0));
+    m.kempston = (uint8_t)(pad_joy | key_joy);
 }
 
 /* ---- joystick ----------------------------------------------------------- */
@@ -191,21 +202,55 @@ static void pad_button(int button, int down)
     case SDL_CONTROLLER_BUTTON_START:      bit = 128; break;
     default: return;
     }
-    m.kempston = (uint8_t)(down ? m.kempston | bit : m.kempston & ~bit);
+    pad_joy = (uint8_t)(down ? pad_joy | bit : pad_joy & ~bit);
+    m.kempston = (uint8_t)(pad_joy | key_joy);
 }
 
 static void pad_axis(int axis, int value)
 {
     const int dead = 12000;
     if (axis == SDL_CONTROLLER_AXIS_LEFTX) {
-        m.kempston &= (uint8_t)~3;
-        if (value > dead) m.kempston |= 1;
-        if (value < -dead) m.kempston |= 2;
+        pad_joy &= (uint8_t)~3;
+        if (value > dead) pad_joy |= 1;
+        if (value < -dead) pad_joy |= 2;
     } else if (axis == SDL_CONTROLLER_AXIS_LEFTY) {
-        m.kempston &= (uint8_t)~12;
-        if (value > dead) m.kempston |= 4;
-        if (value < -dead) m.kempston |= 8;
+        pad_joy &= (uint8_t)~12;
+        if (value > dead) pad_joy |= 4;
+        if (value < -dead) pad_joy |= 8;
     }
+    m.kempston = (uint8_t)(pad_joy | key_joy);
+}
+
+/* A control bar button, or the function key that does the same. */
+static void bar_action(int act, int *running, int *turbo, int *paused, int *muted)
+{
+    switch (act) {
+    case BAR_QUIT: *running = 0; break;
+    case BAR_HARD_RESET: nx_power_on(&m); *paused = 0; break;
+    case BAR_SOFT_RESET: zx_reset(&m); *paused = 0; break;
+    case BAR_PAUSE: *paused ^= 1; otb_video_turbo(0); break;
+    case BAR_TURBO: *turbo ^= 1; otb_video_turbo(*turbo); break;
+    case BAR_MUTE: *muted ^= 1; break;
+    case BAR_SMALLER: otb_video_scale(-1); break;
+    case BAR_BIGGER: otb_video_scale(1); break;
+    case BAR_FULLSCREEN: otb_video_fullscreen(); break;
+    case BAR_PIN: otb_video_pin(!otb_video_pinned()); break;
+    default: break;
+    }
+}
+
+/* A card in a slot, card_mb big; if that much does not fit in memory, a
+ * card sized to its files instead. */
+static int attach_card(int slot, const char *path, int card_mb)
+{
+    if (card_mb > 0) {
+        if (card_mb < 64) card_mb = 64;
+        if (card_mb > 32768) card_mb = 32768;
+        if (!zx_attach_sd_size(&m, slot, path, (unsigned)card_mb))
+            return 0;
+        fprintf(stderr, "opentbblue: no memory for a %d MB card in %s, using a smaller one\n", card_mb, path);
+    }
+    return zx_attach_sd(&m, slot, path);
 }
 
 /* ---- options ------------------------------------------------------------ */
@@ -288,7 +333,7 @@ int main(int argc, char **argv)
     char *text = NULL;
     otb_settings set;
     int scale = -1, full = -1, headless = -1, delay = 250, bench = 0, fetch = -1, update = 0;
-    int a, running = 1, turbo = 0;
+    int a, running = 1, turbo = 0, paused = 0, muted = 0, bar_press = 0;
     zx_net *net;
     uint32_t t0, t1;
     uint64_t frames0;
@@ -360,6 +405,7 @@ int main(int argc, char **argv)
     if (!otb_card_ready(sd))
         return fail("%s is not a Next SD card (it has no TBBLUE.FW)", sd);
     otb_default_config(sd);
+    otb_drawer_icons();
 
     if (zx_create(&m, ZX_NEXT, NULL)) {
         fprintf(stderr, "opentbblue: out of memory\n");
@@ -369,11 +415,11 @@ int main(int argc, char **argv)
     nx_attach_serial(&m, 0, zx_esp8266_new(net));
     otb_mkdirs(pidir);
     nx_attach_serial(&m, 1, zx_nextpi_new(pidir));
-    if (zx_attach_sd(&m, 0, sd)) {
+    if (attach_card(0, sd, set.card_mb)) {
         fprintf(stderr, "opentbblue: cannot use %s as the SD card\n", sd);
         return 1;
     }
-    if (sd1 && zx_attach_sd(&m, 1, sd1))
+    if (sd1 && attach_card(1, sd1, set.card_mb))
         fprintf(stderr, "opentbblue: cannot use %s as the second SD card\n", sd1);
     if (text) {
         unescape(text);
@@ -402,7 +448,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    if (otb_video_open(&m, "OpenTBBlue", scale, full))
+    if (otb_video_open(&m, "OpenTBBlue", scale, full, set.bar_pinned))
         return 1;
     snprintf(title, sizeof title, "OpenTBBlue %s - ZX Spectrum Next", VERSION);
     otb_video_title(title);
@@ -422,11 +468,13 @@ int main(int argc, char **argv)
                 SDL_Scancode sc = ev.key.keysym.scancode;
                 int down = ev.type == SDL_KEYDOWN;
                 if (down && !ev.key.repeat) {
-                    if (sc == SDL_SCANCODE_F10) { running = 0; break; }
-                    if (sc == SDL_SCANCODE_F1) { nx_power_on(&m); break; }
-                    if (sc == SDL_SCANCODE_F4) { zx_reset(&m); break; }
-                    if (sc == SDL_SCANCODE_F9) { turbo ^= 1; otb_video_turbo(turbo); break; }
-                    if (sc == SDL_SCANCODE_F11) { otb_video_fullscreen(); break; }
+                    int act = sc == SDL_SCANCODE_F10 ? BAR_QUIT : sc == SDL_SCANCODE_F1 ? BAR_HARD_RESET :
+                              sc == SDL_SCANCODE_F4 ? BAR_SOFT_RESET : sc == SDL_SCANCODE_F9 ? BAR_TURBO :
+                              sc == SDL_SCANCODE_F11 ? BAR_FULLSCREEN : BAR_NONE;
+                    if (act != BAR_NONE) {
+                        bar_action(act, &running, &turbo, &paused, &muted);
+                        break;
+                    }
                 }
                 if (sc < SDL_NUM_SCANCODES && pc_down[sc] != down) {
                     pc_down[sc] = (uint8_t)down;
@@ -453,6 +501,10 @@ int main(int argc, char **argv)
                 if (ev.window.event == SDL_WINDOWEVENT_EXPOSED || ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
                     ev.window.event == SDL_WINDOWEVENT_RESTORED)
                     otb_video_redraw();
+                if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
+                    otb_video_note_size();
+                if (ev.window.event == SDL_WINDOWEVENT_LEAVE)
+                    otb_video_pointer(-1, -1, 0);
                 if (ev.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                     memset(held, 0, sizeof held);
                     memset(pc_down, 0, sizeof pc_down);
@@ -461,12 +513,31 @@ int main(int argc, char **argv)
                 break;
             case SDL_MOUSEMOTION: {
                 uint32_t b = ev.motion.state;
+                otb_video_pointer(ev.motion.x, ev.motion.y, 1);
                 zx_mouse(&m, ev.motion.xrel, ev.motion.yrel, 0,
                          (b & SDL_BUTTON_LMASK ? 1 : 0) | (b & SDL_BUTTON_RMASK ? 2 : 0) | (b & SDL_BUTTON_MMASK ? 4 : 0));
                 break;
             }
             case SDL_MOUSEBUTTONDOWN:
             case SDL_MOUSEBUTTONUP:
+                /* a click on the bar is the bar's, not the Kempston mouse's */
+                if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
+                    int act = otb_video_click(ev.button.x, ev.button.y);
+                    if (act != BAR_NONE) {
+                        bar_press = 1;
+                        bar_action(act, &running, &turbo, &paused, &muted);
+                        if (act == BAR_PIN) {
+                            set.bar_pinned = otb_video_pinned();
+                            otb_settings_put("bar", set.bar_pinned ? "pinned" : "auto");
+                        }
+                        break;
+                    }
+                }
+                if (ev.type == SDL_MOUSEBUTTONUP && bar_press) {
+                    bar_press = 0;
+                    break;
+                }
+                /* fall through */
             case SDL_MOUSEWHEEL: {
                 uint32_t b = SDL_GetMouseState(NULL, NULL);
                 zx_mouse(&m, 0, 0, ev.type == SDL_MOUSEWHEEL ? -ev.wheel.y : 0,
@@ -496,6 +567,11 @@ int main(int argc, char **argv)
             latched = any;
             if (changed)
                 rebuild_keys();
+        }
+        otb_video_bar_state(paused, turbo, muted);
+        if (paused) {
+            otb_video_idle();
+            continue;
         }
         zx_type_frame(&typer, &m);
         zx_run_frame(&m);

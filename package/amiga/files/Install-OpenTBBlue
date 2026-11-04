@@ -6,7 +6,7 @@
 (set #version "0.1.0")
 (set #drawer "OpenTBBlue")
 (set #program "OpenTBBlue")
-(set #space 253907)  ; KB
+(set #space 255000)  ; KB
 
 (onerror
     (message (cat "OpenTBBlue was not installed completely." "\n\n" @error-msg
@@ -60,6 +60,35 @@
         (dest "LIBS:GFOpenGPU")))
 (complete 20)
 
+; the network: gfopentls.library for HTTPS, its CA list, and curl in C:
+; (the first start downloads System/Next with curl; OpenTBBlue uses the curl
+; in its drawer, and C:curl is for the Shell). A newer library, a CA list
+; or a curl already there is kept.
+(set #net (tackon #source "Network"))
+(if (<> (exists (tackon #net "Libs/gfopentls.library") (noreq)) 1)
+    (abort "The Network drawer is not beside Install-OpenTBBlue. Unpack the whole archive, then run Install-OpenTBBlue again."))
+(copylib
+    (prompt "Copying gfopentls.library (HTTPS) to LIBS:")
+    (help @copylib-help)
+    (source (tackon #net "Libs/gfopentls.library"))
+    (dest "LIBS:")
+    (confirm "expert"))
+(if (and (<> (exists "S:GFOpenTLS/ca-bundle.pem" (noreq)) 1)
+         (= (exists (tackon #net "S/GFOpenTLS/ca-bundle.pem") (noreq)) 1))
+    (copyfiles
+        (prompt "Copying the CA list for HTTPS to S:GFOpenTLS/")
+        (help @copyfiles-help)
+        (source (tackon #net "S/GFOpenTLS"))
+        (dest "S:GFOpenTLS")
+        (choices "ca-bundle.pem")))
+(if (<> (exists "C:curl" (noreq)) 1)
+    (copyfiles
+        (prompt "Copying curl to C:")
+        (help @copyfiles-help)
+        (source (tackon #from "curl"))
+        (dest "C:")))
+(complete 30)
+
 ; the drawer: everything in it, but what the player has made
 (set #kept "")
 (if (exists (tackon #dest "OpenTBBlue-data") (noreq))
@@ -89,6 +118,25 @@
         (choices "OpenTBBlue.info")))
 
 (set @default-dest #dest)
+(complete 90)
+
+; System/Next, the Next's own software (about 100 MB, with curl): now, or on
+; the first start
+(set #card (tackon #dest "OpenTBBlue-data/drives/SD0/TBBLUE.FW"))
+(if (and (not @pretend) (<> (exists #card (noreq)) 1))
+    (if (askbool
+            (prompt "Download System/Next now? It is the Next's own software, about 100 MB, and the network must be up. Otherwise OpenTBBlue downloads it on its first start.")
+            (help "OpenTBBlue runs curl to fetch the latest System/Next distribution and writes its files to the first SD card, OpenTBBlue-data/drives/SD0. A window shows how far it has got.")
+            (choices "Download now" "On the first start")
+            (default 1))
+        (
+            (textfile
+                (dest "T:OpenTBBlue-fetch")
+                (append (cat "Stack 262144\n\"" (tackon #dest #program) "\" --fetch\n")))
+            (set #got (execute "T:OpenTBBlue-fetch" (safe)))
+            (delete "T:OpenTBBlue-fetch" (safe))
+            (if (<> (exists #card (noreq)) 1)
+                (message "System/Next was not downloaded (is the network up?). OpenTBBlue tries again on its first start.")))))
 (complete 100)
 (if @pretend
     (message (cat "Pretend: nothing was copied or changed. OpenTBBlue would have gone in " #dest "."))

@@ -178,8 +178,16 @@ typedef struct zxn {
     uint8_t automap_held, automap_hold;
     uint8_t automap;          /* currently mapped by automap */
 
-    /* multiface */
-    uint8_t mf_enabled;
+    /* multiface (device/multiface.vhd) and the NMI sequencer in zxnext.vhd */
+    uint8_t mf_enabled;       /* mf_enable: multiface memory paged in */
+    uint8_t mf_nmi_active;    /* nmi_active: multiface NMI in service */
+    uint8_t mf_invisible;
+    uint8_t nmi_mf, nmi_divmmc;   /* which device took the NMI */
+    uint8_t nmi_state;        /* 0 idle, 1 fetch, 2 hold, 3 end */
+    uint8_t nmi_cpu;          /* NMI edge waiting for the Z80 */
+    uint8_t div_button_nmi;   /* divmmc button_nmi */
+    uint8_t nr_02_gen_mf, nr_02_gen_div;
+    uint8_t stackless_retn;   /* z80_stackless_retn_en */
 
     /* interrupts (device/im2_*.vhd) */
     uint8_t im2_state[14];    /* 0 idle, 1 request, 2 ack, 3 in service */

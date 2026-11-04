@@ -1,0 +1,13 @@
+--- a/src/terminal.c
++++ b/src/terminal.c
+@@ -54,7 +54,9 @@
+   if(!width) {
+     int cols = 0;
+ 
+-#ifdef TIOCGSIZE
++#if defined(__amigaos__)
++    /* AmigaOS: no terminal ioctl; COLUMNS or 79 */
++#elif defined(TIOCGSIZE)
+     struct ttysize ts;
+     if(!ioctl(STDIN_FILENO, TIOCGSIZE, &ts))
+       cols = ts.ts_cols;

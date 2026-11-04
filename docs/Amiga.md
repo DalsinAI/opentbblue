@@ -1,9 +1,13 @@
 # OpenTBBlue on AmigaOS (68040)
 
 The Amiga build is the same program with the same SDL2 window. It needs
-AmigaOS 3.2, a 68040 and an RTG screen. The first-run download uses an
-Amiga `curl` in the path (OpenUp installs one in `C:`), or copy a card made
-by another OpenTBBlue into `OpenTBBlue-data/drives/SD0`. The files go in
+AmigaOS 3.2, a 68040 and an RTG screen. The package brings its own `curl`
+(curl 8.22.0 built for the 68040, HTTPS through `gfopentls.library`), which
+the first start downloads System/Next with. Install-OpenTBBlue puts
+`gfopentls.library` in `LIBS:`, its CA list in `S:GFOpenTLS/` and `curl` in
+`C:` where they are missing, then offers to download System/Next straight
+away. Without a network, copy a card made by another OpenTBBlue into
+`OpenTBBlue-data/drives/SD0`. The files go in
 `PROGDIR:OpenTBBlue-data`, beside the program, so put it on your fastest
 disk.
 
@@ -21,6 +25,16 @@ With an m68k-amigaos-gcc of your own and an SDL2 for it:
 ```sh
 make amiga AMIGA_CC=/path/to/m68k-amigaos-gcc AMIGA_SDL=/path/to/sdl2-prefix
 ```
+
+`package/amiga/build-curl.sh` (run by `build-ci.sh`) builds `curl` and
+`gfopentls.library` from DalsinAI/gfopencurl and DalsinAI/gfopentls at pinned
+commits; the CA list is Mozilla's, from the build machine's
+ca-certificates. `build-amiga.sh` at the top makes the same package
+unpacked, to copy straight onto a test Amiga.
+
+The drawers the first start makes (`OpenTBBlue-data`, `drives` and each
+card in it, `media`) get GlowIcons from the drawer's `Icons/`
+(`package/amiga/make_drawer_icons.py` draws them).
 
 The SDL2 link library loads GFOpenGPU's `SDL2.module` at run time, which
 the Installer copies into `LIBS:` if it isn't there. The Next's wifi uses `bsdsocket.library`, so any
