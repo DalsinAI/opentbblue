@@ -96,6 +96,7 @@ patch -s -d "$SRC" -p1 < "$HERE/curl/0001-terminal-width-on-amigaos.patch"
 (cd "$B" && cmake -DBUILD_CURL_EXE=ON -DCMAKE_C_STANDARD_LIBRARIES="$WORK/curl-amiga-net.o" . > /dev/null 2>&1 &&
     make -j"${JOBS:-4}" curl > "$WORK/curl-tool.log" 2>&1) || { tail -40 "$WORK/curl-tool.log"; exit 1; }
 "$TC/bin/m68k-amigaos-strip" -o "$OUT/curl" "$B/src/curl"
+chmod 755 "$OUT/curl"   # LhA carries it as the Amiga e bit
 "$TC/bin/m68k-amigaos-objdump" -f "$OUT/curl" | grep -q amiga
 
 cp "$WORK/tls/lib/gfopentls.library" "$OUT/"
