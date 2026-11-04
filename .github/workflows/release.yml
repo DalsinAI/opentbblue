@@ -1,0 +1,104 @@
+name: Release OpenTBBlue
+
+# A tag v* builds OpenTBBlue for Linux, Windows and macOS and publishes the release.
+# Running it by hand on main with a version (v0.1.0) does the same and makes the tag.
+# A pull request that touches the build runs the same builds, without publishing.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+    paths: ['src/**', 'Makefile', '.github/workflows/release.yml']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag to make on this commit, such as v0.1.0 (empty builds only)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsdl2-dev
+      - run: make && make test
+      - name: Package
+        run: |
+          d=opentbblue-linux-x86_64
+          mkdir -p $d
+          cp opentbblue README.md LICENSE $d/
+          strip $d/opentbblue
+          tar czf $d.tar.gz $d
+      - uses: actions/upload-artifact@v4
+        with: { name: linux, path: opentbblue-linux-x86_64.tar.gz }
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: make zip mingw-w64-x86_64-gcc mingw-w64-x86_64-SDL2 mingw-w64-x86_64-pkgconf
+      - run: make LDLIBS="-static-libgcc"
+      - run: make test
+      - name: Package
+        run: |
+          d=opentbblue-windows-x86_64
+          mkdir -p $d
+          cp opentbblue.exe README.md LICENSE $d/
+          ldd opentbblue.exe | awk '/mingw64/ {print $3}' | xargs -r -I{} cp -n {} $d/
+          strip $d/*.exe
+          zip -r $d.zip $d
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: opentbblue-windows-x86_64.zip }
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install sdl2
+      - run: make CC=clang && make test CC=clang
+      - name: Package (SDL2 beside the program)
+        run: |
+          d=opentbblue-macos-arm64
+          mkdir -p $d
+          cp opentbblue README.md LICENSE $d/
+          lib=$(otool -L opentbblue | awk '/libSDL2/ {print $1}')
+          cp "$lib" $d/
+          install_name_tool -change "$lib" "@executable_path/$(basename "$lib")" $d/opentbblue
+          codesign --force -s - $d/opentbblue
+          otool -L $d/opentbblue
+          tar czf $d.tar.gz $d
+      - uses: actions/upload-artifact@v4
+        with: { name: macos, path: opentbblue-macos-arm64.tar.gz }
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.version, 'v')
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.version || github.ref_name }}
+        run: |
+          cd dist && sha256sum * > SHA256SUMS && cd ..
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "OpenTBBlue ${TAG#v}" --notes-file RELEASE-NOTES.md

@@ -1,0 +1,6 @@
+/opentbblue
+/opentbblue.exe
+/opentbblue.68k
+/tests/setup_test
+/tests/setup_test.exe
+*.o
