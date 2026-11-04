@@ -128,7 +128,7 @@ int otb_default_config(const char *sd)
     join(p, sizeof p, sd, "machines/next/config.ini");
     if (is_file(p))
         return 0;
-    fp = fopen(p, "w");
+    fp = fopen(p, "wb");   /* LF only, as the Next's own files */
     if (!fp)
         return -1;
     /* timing=0 is the first VGA mode at 50 Hz; the firmware fills in every
