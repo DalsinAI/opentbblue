@@ -196,7 +196,11 @@ void otb_video_fullscreen(void)
         s = (int)f;
         bst.scale = s;
         SDL_SetWindowSize(win, (int)(ZX_SCREEN_W * f), (int)(h * f));
-        SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        /* in the middle (SDL2.module leaves a CENTERED window where it was) */
+        {
+            int x = (sw - (int)(ZX_SCREEN_W * f)) / 2, y = (sh - (int)(h * f)) / 2;
+            SDL_SetWindowPosition(win, x > 0 ? x : 0, y > 20 ? y : 20);
+        }
         bar_dirty = 1;
         force = 1;
         settle = 50;
