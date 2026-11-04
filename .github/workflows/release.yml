@@ -170,7 +170,7 @@ jobs:
         with: { name: macos, path: dist/* }
 
   amiga:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04   # the toolchain needs glibc 2.38
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

@@ -42,7 +42,7 @@ Source: "{#SRC}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\OpenTBBlue"; Filename: "{app}\opentbblue.exe"
-Name: "{group}\OpenTBBlue files (SD card, media)"; Filename: "{userappdata}\OpenTBBlue"; Flags: foldershortcut
+Name: "{group}\OpenTBBlue files (SD card, media)"; Filename: "{userappdata}\OpenTBBlue"
 Name: "{group}\Uninstall OpenTBBlue"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\OpenTBBlue"; Filename: "{app}\opentbblue.exe"; Tasks: desktopicon
 
