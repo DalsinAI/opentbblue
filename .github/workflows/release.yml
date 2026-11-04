@@ -142,6 +142,11 @@ jobs:
           lib=$(otool -L opentbblue | awk '/libSDL2/ {print $1}')
           cp "$lib" "$app/Contents/MacOS/"
           install_name_tool -change "$lib" "@executable_path/$(basename "$lib")" "$app/Contents/MacOS/opentbblue"
+          # Homebrew's SDL2 is sdl2-compat, which loads SDL3 when it starts
+          # (and waits on a message box without it): SDL3 goes in too.
+          sdl3=$(brew --prefix sdl3)/lib/libSDL3.0.dylib
+          if [ -f "$sdl3" ]; then cp "$sdl3" "$app/Contents/MacOS/"; fi
+          ls -l "$app/Contents/MacOS"
           sed "s/@VERSION@/$v/g" package/macos/Info.plist > "$app/Contents/Info.plist"
           # the icon, at every size macOS asks for
           set=pkg/OpenTBBlue.iconset
@@ -163,8 +168,10 @@ jobs:
           hdiutil create -volname "OpenTBBlue $v" -srcfolder "$root" -ov -format UDZO "dist/OpenTBBlue-$v-macos-arm64.dmg"
       - name: The app starts from the disk image
         run: |
-          hdiutil attach dist/*.dmg -mountpoint /tmp/otb-dmg
-          /tmp/otb-dmg/OpenTBBlue.app/Contents/MacOS/opentbblue --version
+          hdiutil attach -nobrowse -noautoopen dist/*.dmg -mountpoint /tmp/otb-dmg
+          # with no Homebrew SDL on the path, as on a user's Mac
+          brew unlink sdl3 sdl2-compat >/dev/null 2>&1 || true
+          perl -e 'alarm 60; exec @ARGV' /tmp/otb-dmg/OpenTBBlue.app/Contents/MacOS/opentbblue --version
           hdiutil detach /tmp/otb-dmg
       - uses: actions/upload-artifact@v4
         with: { name: macos, path: dist/* }
