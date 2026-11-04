@@ -38,17 +38,20 @@ tests/setup_test: tests/setup_test.c src/setup.c src/setup.h
 test: tests/setup_test
 	./tests/setup_test
 
-# AmigaOS 3.2, 68040: see docs/Amiga.md. The core has no floating point, so
-# it builds soft-float; -fomit-frame-pointer frees a register for the hot loop.
-AMIGA_CC     ?= m68k-amigaos-gcc
-AMIGA_SPECS  ?= m68k-soft-m68040.specs
-AMIGA_CFLAGS ?= -O3 -m68040 -mtune=68040 -fomit-frame-pointer -fno-strict-aliasing -DNDEBUG
-AMIGA_SDL    ?= /opt/gfopensdl
+# AmigaOS 3.2, 68040: see docs/Amiga.md. Built with OpenAmigaGCC 16.2.0-open3
+# (OpenNDK); -m68040 picks the soft-float libraries by itself. The core has
+# no floating point at all. -fomit-frame-pointer frees a register for the
+# CPU loop. SDL2 is the OpenGPU SDL2 stub (SDL2.module) from the stove, and
+# the network is bsdsocket.library.
+AMIGA_CC      ?= m68k-amigaos-gcc
+AMIGA_CFLAGS  ?= -O3 -m68040 -mtune=68040 -fomit-frame-pointer -fno-strict-aliasing -fno-tree-loop-distribute-patterns -DNDEBUG
+AMIGA_SDL     ?= $(dir $(shell which $(AMIGA_CC) 2>/dev/null))../m68k-amigaos
+AMIGA_LDLIBS  ?= -noixemul -lm
 amiga: opentbblue.68k
 
-opentbblue.68k: $(OWN) $(CORE) $(NET) $(HDRS)
-	$(AMIGA_CC) -specs=$(AMIGA_SPECS) $(AMIGA_CFLAGS) -std=gnu99 -Isrc -I$(AMIGA_SDL)/include/SDL2 \
-	    $(OWN) $(CORE) $(NET) -L$(AMIGA_SDL)/lib -lSDL2 $(AMIGA_LDLIBS) -o $@
+opentbblue.68k: $(OWN) $(CORE) src/frontend/net_amiga.c $(HDRS)
+	$(AMIGA_CC) -noixemul $(AMIGA_CFLAGS) -std=gnu99 -Isrc -include src/compat.h -I$(AMIGA_SDL)/include/SDL2 \
+	    $(OWN) $(CORE) src/frontend/net_amiga.c -L$(AMIGA_SDL)/lib -lSDL2 $(AMIGA_LDLIBS) -o $@
 
 install: opentbblue
 	install -D -m 755 opentbblue $(DESTDIR)$(PREFIX)/bin/opentbblue

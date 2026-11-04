@@ -1,17 +1,23 @@
 # OpenTBBlue on AmigaOS (68040)
 
 The Amiga build is the same program with the same SDL2 window, built with
-OpenNDK's m68k-amigaos-gcc against [gfopensdl](https://github.com/DalsinAI/gfopensdl)
-(SDL 2 on OpenRTG). It needs AmigaOS 3.2, a 68040 and an RTG screen. The first-run
-download uses `curl` from [gfopencurl](https://github.com/DalsinAI/gfopencurl).
+OpenAmigaGCC 16.2.0-open3 (OpenNDK) against the OpenGPU SDL2. It needs AmigaOS 3.2, a 68040 and an RTG screen. The first-run
+download uses an Amiga `curl` in the path (OpenUp installs one in `C:`). Or
+copy a card made by another OpenTBBlue into `OpenTBBlue-data/sd`.
 The files go in `PROGDIR:OpenTBBlue-data`, beside the program, so put it on
 your fastest disk.
 
 ```sh
-make amiga AMIGA_SDL=/path/to/gfopensdl/prefix     # gives opentbblue.68k
+make amiga AMIGA_CC=~/AmigaChrome/stoves/os32-gcc16/prefix/bin/m68k-amigaos-gcc
 ```
 
-It's built 68040-only and soft-float. The machine core has no floating point
+That gives `opentbblue.68k`. SDL2 is the stove's OpenGPU SDL2 stub, which
+loads `LIBS:OpenGPU/SDL2.module` at run time; `AMIGA_SDL` points at another
+SDL2 prefix if needed. The Next's wifi uses `bsdsocket.library`, so any
+TCP/IP stack works; with none running, the Next just sees no network.
+
+It's built 68040-only, soft-float (open3 picks the soft-float libraries
+for `-m68040`). The machine core has no floating point
 at all, so soft-float costs nothing. `-O3 -fomit-frame-pointer` frees a
 register for the CPU loop.
 
