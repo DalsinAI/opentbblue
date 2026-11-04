@@ -82,11 +82,15 @@ Round 2, checked the same way (and with `-DOTB_CHECK_MIX`):
 | --- | --- | --- |
 | Five scenarios (x86-64) | 57 s | 34 s |
 | NextZXOS, 1500 frames, no window (x86-64) | 5.01 s (300 fps) | 2.29 s (654 fps) |
-| NextZXOS, 1500 frames, no window (68040 lab) | 31.93 s (47.0 fps, 94%) | to be measured |
+| NextZXOS, 1500 frames, no window (68040 lab) | 31.98 s (46.9 fps, 94%) | 18.77 s (79.9 fps, 160%) |
+| NextZXOS, 500 frames, no window (68040 lab) | 9.39 s (53.3 fps, 107%) | 5.73 s (87.3 fps, 175%) |
+
+In the window on the 68040 lab, round 2 holds 49.4 frames a second (real
+time is 50), drawing only the frames that changed.
 
 Next:
 
-1. Measure round 2 on the AmiCradle 68040 lab with the window drawing, then
-   on a real 68040.
+1. Measure on a real 68040. In the lab SDL2 draws through WritePixelArray
+   (its bitmap lock fails there), the slower path.
 2. The Z80N's clock is 64-bit; on a 68040 every add and compare on it is
    two instructions. A 32-bit clock inside the frame is the next step.
