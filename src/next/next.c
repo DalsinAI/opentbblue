@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static void nx_z80_nmi(z80 *z, const z80_bus *bus);
+
 /* ---- machine timing (video/zxula_timing.vhd) --------------------------- */
 
 enum { T48, T128, TP3, TPENT };
@@ -714,7 +716,7 @@ static void nmi_ack(zxn *n, zx *m)
     uint16_t pc = m->cpu.pc, sp = m->cpu.sp;
     int stackless = (n->nr_c0 >> 3) & 1;
     uint8_t lo = nx_mem_read(n, (uint16_t)(sp - 2)), hi = nx_mem_read(n, (uint16_t)(sp - 1));
-    z80_nmi(&m->cpu, &m->bus);
+    nx_z80_nmi(&m->cpu, &m->bus);
     n->retn_lsb = (uint8_t)pc;
     n->retn_msb = (uint8_t)(pc >> 8);
     if (stackless) {
@@ -1855,6 +1857,22 @@ static void b_io_write(void *ctx, uint16_t port, uint8_t v)
     port_write(n, port, v);
 }
 
+/*
+ * The Next's own copy of the Z80 core, calling the bus functions above
+ * directly so the compiler can inline them (no pointer call per access).
+ */
+#define Z80_INCLUDED 1
+#define Z80_NAME(name) nx_##name
+#define Z80_API static
+#define BUS_FETCH(a) b_fetch(bus->ctx, a)
+#define BUS_READ(a) b_read(bus->ctx, a)
+#define BUS_WRITE(a, v) b_write(bus->ctx, a, v)
+#define BUS_IO_READ(p) b_io_read(bus->ctx, p)
+#define BUS_IO_WRITE(p, v) b_io_write(bus->ctx, p, v)
+#define BUS_INTERNAL(a, n) b_internal(bus->ctx, a, n)
+#define BUS_TICK(n) b_tick(bus->ctx, n)
+#include "../z80/z80.c"
+
 uint8_t nx_mem_read(zxn *n, uint16_t addr)
 {
     return n->slot[addr >> 13].rd[addr & 0x1fff];
@@ -2401,10 +2419,10 @@ void nx_run_frame(zx *m)
             }
         }
         if (int_line(n) && z80_int_enabled(&m->cpu)) {
-            z80_interrupt(&m->cpu, &m->bus);
+            nx_z80_interrupt(&m->cpu, &m->bus);
             continue;
         }
-        z80_step(&m->cpu, &m->bus);
+        nx_z80_step(&m->cpu, &m->bus);
     }
 
     nx_video_run(n, end);

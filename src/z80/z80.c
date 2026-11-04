@@ -4,13 +4,39 @@
  */
 #include "z80.h"
 
+/*
+ * The bus: through the z80_bus pointers, or, when a machine includes this
+ * file with Z80_INCLUDED and its own BUS_* macros (next.c does), straight
+ * into its own static bus functions, which the compiler can then inline.
+ * Its copy's public functions get the machine's names through Z80_NAME.
+ */
+#ifndef Z80_INCLUDED
+#define Z80_NAME(name) name
+#define Z80_API
+#define BUS_FETCH(a) bus->fetch(bus->ctx, a)
+#define BUS_READ(a) bus->read(bus->ctx, a)
+#define BUS_WRITE(a, v) bus->write(bus->ctx, a, v)
+#define BUS_IO_READ(p) bus->io_read(bus->ctx, p)
+#define BUS_IO_WRITE(p, v) bus->io_write(bus->ctx, p, v)
+#define BUS_INTERNAL(a, n) bus->internal(bus->ctx, a, n)
+#define BUS_TICK(n) bus->tick(bus->ctx, n)
+#endif
+
 #include <string.h>
 
 enum { IDX_HL, IDX_IX, IDX_IY };
 
-static uint8_t sz53[256], parity[256], sz53p[256];
+#ifndef Z80_INCLUDED
+uint8_t z80_sz53[256], z80_parity[256], z80_sz53p[256];
 static int tables_ready;
+#else
+extern uint8_t z80_sz53[256], z80_parity[256], z80_sz53p[256];
+#endif
+#define sz53 z80_sz53
+#define parity z80_parity
+#define sz53p z80_sz53p
 
+#ifndef Z80_INCLUDED
 static void build_tables(void)
 {
     int i;
@@ -49,6 +75,7 @@ void z80_init(z80 *cpu, int z80n)
     z80_reset(cpu);
     cpu->z80n = (uint8_t)(z80n != 0);
 }
+#endif
 
 /* ---- register helpers ------------------------------------------------- */
 
@@ -146,13 +173,13 @@ static int cond(const z80 *z, int y)
 
 /* ---- bus helpers ------------------------------------------------------ */
 
-#define RD(a) bus->read(bus->ctx, (uint16_t)(a))
-#define WR(a, v) bus->write(bus->ctx, (uint16_t)(a), (uint8_t)(v))
-#define INTERNAL(a, n) bus->internal(bus->ctx, (uint16_t)(a), (n))
+#define RD(a) BUS_READ((uint16_t)(a))
+#define WR(a, v) BUS_WRITE((uint16_t)(a), (uint8_t)(v))
+#define INTERNAL(a, n) BUS_INTERNAL((uint16_t)(a), (n))
 
 static inline uint8_t fetch_op(z80 *z, const z80_bus *bus)
 {
-    uint8_t op = bus->fetch(bus->ctx, z->pc);
+    uint8_t op = BUS_FETCH(z->pc);
     z->pc++;
     inc_r(z);
     return op;
@@ -384,7 +411,7 @@ static void daa(z80 *z)
 
 /* ---- interrupts ------------------------------------------------------- */
 
-int z80_interrupt(z80 *z, const z80_bus *bus)
+Z80_API int Z80_NAME(z80_interrupt)(z80 *z, const z80_bus *bus)
 {
     uint8_t data;
     if (!z80_int_enabled(z))
@@ -394,7 +421,7 @@ int z80_interrupt(z80 *z, const z80_bus *bus)
     inc_r(z);
     z->q = 0;
     data = bus->int_ack ? bus->int_ack(bus->ctx) : 0xff;
-    bus->tick(bus->ctx, 7);
+    BUS_TICK(7);
     push16(z, bus, z->pc);
     if (z->im == 2)
         z->pc = read16(bus, (uint16_t)(z->i << 8 | data));
@@ -404,13 +431,13 @@ int z80_interrupt(z80 *z, const z80_bus *bus)
     return 1;
 }
 
-void z80_nmi(z80 *z, const z80_bus *bus)
+Z80_API void Z80_NAME(z80_nmi)(z80 *z, const z80_bus *bus)
 {
     z->halted = 0;
     z->iff1 = 0;
     inc_r(z);
     z->q = 0;
-    bus->tick(bus->ctx, 5);
+    BUS_TICK(5);
     push16(z, bus, z->pc);
     z->pc = 0x0066;
     z->memptr = z->pc;
@@ -423,7 +450,7 @@ static void exec_cb(z80 *z, const z80_bus *bus, uint8_t op);
 static void exec_ddcb(z80 *z, const z80_bus *bus, int idx);
 static void exec_ed(z80 *z, const z80_bus *bus, uint8_t op);
 
-void z80_step(z80 *z, const z80_bus *bus)
+Z80_API void Z80_NAME(z80_step)(z80 *z, const z80_bus *bus)
 {
     uint8_t op;
     int idx = IDX_HL;
@@ -435,7 +462,7 @@ void z80_step(z80 *z, const z80_bus *bus)
     if (z->halted) {
         /* HALT executes NOPs: PC already points past the HALT and the
          * CPU keeps fetching (and discarding) the byte there. */
-        bus->fetch(bus->ctx, z->pc);
+        BUS_FETCH(z->pc);
         inc_r(z);
         return;
     }
@@ -690,13 +717,13 @@ static void exec_main(z80 *z, const z80_bus *bus, uint8_t op, int idx)
             case 0: nn = imm16(z, bus); z->memptr = nn; z->pc = nn; break;
             case 2: /* OUT (n),A */
                 n = imm8(z, bus);
-                bus->io_write(bus->ctx, (uint16_t)(z->a << 8 | n), z->a);
+                BUS_IO_WRITE((uint16_t)(z->a << 8 | n), z->a);
                 z->memptr = (uint16_t)(z->a << 8 | ((n + 1) & 0xff));
                 break;
             case 3: /* IN A,(n) */
                 n = imm8(z, bus);
                 addr = (uint16_t)(z->a << 8 | n);
-                z->a = bus->io_read(bus->ctx, addr);
+                z->a = BUS_IO_READ(addr);
                 z->memptr = (uint16_t)(addr + 1);
                 break;
             case 4: /* EX (SP),HL */
@@ -886,7 +913,7 @@ static void block(z80 *z, const z80_bus *bus, int y, int zz)
     case 2: /* INI/IND/INIR/INDR */
         INTERNAL(IR(z), 1);
         port = BC(z);
-        v = bus->io_read(bus->ctx, port);
+        v = BUS_IO_READ(port);
         WR(hl, v);
         z->memptr = (uint16_t)(port + stp);
         z->b--;
@@ -906,7 +933,7 @@ static void block(z80 *z, const z80_bus *bus, int y, int zz)
         z->b--;
         port = BC(z);
         z->memptr = (uint16_t)(port + stp);
-        bus->io_write(bus->ctx, port, v);
+        BUS_IO_WRITE(port, v);
         set_hl(z, (uint16_t)(hl + stp));
         io_block_flags(z, v, (unsigned)v + z->l);
         if (repeat && z->b) {
@@ -971,7 +998,7 @@ static int exec_z80n(z80 *z, const z80_bus *bus, uint8_t op)
     case 0x90: /* OUTINB */
         INTERNAL(IR(z), 1);
         v = RD(hl);
-        bus->io_write(bus->ctx, BC(z), v);
+        BUS_IO_WRITE(BC(z), v);
         set_hl(z, (uint16_t)(hl + 1));
         break;
     case 0x91: /* NEXTREG n,n */
@@ -1002,7 +1029,7 @@ static int exec_z80n(z80 *z, const z80_bus *bus, uint8_t op)
         break;
     case 0x95: z->a = (uint8_t)(0x80 >> (z->e & 7)); break; /* SETAE */
     case 0x98: /* JP (C) */
-        v = bus->io_read(bus->ctx, BC(z));
+        v = BUS_IO_READ(BC(z));
         INTERNAL(IR(z), 1);
         z->pc = (uint16_t)((z->pc & 0xc000) + (v << 6));
         break;
@@ -1011,7 +1038,7 @@ static int exec_z80n(z80 *z, const z80_bus *bus, uint8_t op)
         if (v != z->a)
             WR(de, v);
         else
-            bus->tick(bus->ctx, 3);
+            BUS_TICK(3);
         INTERNAL(de, 2);
         set_hl(z, (uint16_t)((op & 0x08) ? hl - 1 : hl + 1));
         set_de(z, (uint16_t)(de + 1));
@@ -1032,7 +1059,7 @@ static int exec_z80n(z80 *z, const z80_bus *bus, uint8_t op)
         if (v != z->a)
             WR(de, v);
         else
-            bus->tick(bus->ctx, 3);
+            BUS_TICK(3);
         INTERNAL(de, 2);
         set_de(z, (uint16_t)(de + 1));
         set_bc(z, (uint16_t)(BC(z) - 1));
@@ -1067,7 +1094,7 @@ static void exec_ed(z80 *z, const z80_bus *bus, uint8_t op)
     switch (zz) {
     case 0: /* IN r,(C) */
         port = BC(z);
-        v = bus->io_read(bus->ctx, port);
+        v = BUS_IO_READ(port);
         z->memptr = (uint16_t)(port + 1);
         if (y != 6)
             set_reg8(z, y, IDX_HL, v);
@@ -1075,7 +1102,7 @@ static void exec_ed(z80 *z, const z80_bus *bus, uint8_t op)
         break;
     case 1: /* OUT (C),r */
         port = BC(z);
-        bus->io_write(bus->ctx, port, y == 6 ? 0 : reg8(z, y, IDX_HL));
+        BUS_IO_WRITE(port, y == 6 ? 0 : reg8(z, y, IDX_HL));
         z->memptr = (uint16_t)(port + 1);
         break;
     case 2:
