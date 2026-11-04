@@ -48,6 +48,10 @@ fetch gfopensdk "$SDK_COMMIT" sdk
 fetch gfopenrtg "$RTG_COMMIT" rtg
 cp -R sdk/OpenNDK/Include_H/. "$TC/m68k-amigaos/include/"
 cp -R sdk/Include/. "$TC/m68k-amigaos/include/"
+# OpenNDK names bsdsocket.library's header proto/bsdsocket.h; the stoves
+# also have the usual proto/socket.h name for it.
+[ -f "$TC/m68k-amigaos/include/proto/socket.h" ] ||
+    printf '#include <proto/bsdsocket.h>\n' > "$TC/m68k-amigaos/include/proto/socket.h"
 
 # 3. The SDL2 link stub (libSDL2.a) and SDL's headers. The stub needs none
 #    of the CyberGraphX and AHI headers the module does: empty ones stand in.
