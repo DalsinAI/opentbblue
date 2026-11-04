@@ -190,6 +190,8 @@ void zx_eject_disk(zx *m, int drive);
  * freed. */
 struct zx_blockdev;
 int zx_attach_sd_dev(zx *m, int slot, struct zx_blockdev *bd);
+/* Take the Next's card out of a slot (its folder written back first). */
+void zx_eject_sd(zx *m, int slot);
 /* Host side (files.c): an image file or a folder, see storage/blockdev.h. */
 int zx_attach_sd(zx *m, int slot, const char *path);
 /* The same, with a folder made into a card of size_mb (0: sized to fit). */

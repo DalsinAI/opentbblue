@@ -243,6 +243,7 @@ void nx_soft_reset(struct zx *m);
 void nx_run_frame(struct zx *m);
 struct zx_blockdev;
 int nx_attach_sd_dev(struct zx *m, int slot, struct zx_blockdev *bd);
+void nx_eject_sd(struct zx *m, int slot);
 /* Connect a device to UART 0 (ESP wifi) or 1 (Pi); the machine closes it. */
 void nx_attach_serial(struct zx *m, int uart, struct zx_serial *dev);
 /* Host mouse movement (dy down is positive) and buttons (1 left, 2 right,

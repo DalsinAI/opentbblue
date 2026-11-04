@@ -28,6 +28,7 @@ static const uint8_t ic_plus[8] = { 0x00, 0x18, 0x18, 0x7e, 0x7e, 0x18, 0x18, 0x
 static const uint8_t ic_full[8] = { 0xe7, 0x81, 0x81, 0x00, 0x00, 0x81, 0x81, 0xe7 };
 static const uint8_t ic_pin[8] = { 0x3c, 0x3c, 0x3c, 0x7e, 0xff, 0x18, 0x18, 0x18 };
 static const uint8_t ic_quit[8] = { 0x81, 0x42, 0x24, 0x18, 0x18, 0x24, 0x42, 0x81 };
+static const uint8_t ic_card[8] = { 0x3e, 0x6a, 0xea, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe };
 
 /* 3x5 letters for the labels: five rows of three bits */
 static const struct { char c; const char *rows; } font[] = {
@@ -44,6 +45,9 @@ static const struct { char c; const char *rows; } font[] = {
     { '3', "110001010001110" }, { '4', "101101111001001" }, { '5', "111100110001110" },
     { '6', "011100111101111" }, { '7', "111001010010010" }, { '8', "111101111101111" },
     { '9', "111101111001110" }, { '-', "000000111000000" }, { ' ', "000000000000000" },
+    { ':', "000010000010000" }, { '/', "001001010100100" }, { '.', "000000000000010" },
+    { '(', "010100100100010" }, { ')', "010001001001010" }, { ',', "000000000010100" },
+    { '?', "110001010000010" }, { '_', "000000000000111" }, { '+', "000010111010000" },
 };
 
 /* The buttons: where they are, and what the label says on hover */
@@ -57,6 +61,7 @@ static const button buttons[] = {
     { BAR_MUTE, 50, "SOUND" },
     { BAR_SMALLER, 66, "SMALLER WINDOW" },
     { BAR_BIGGER, 90, "BIGGER WINDOW" },
+    { BAR_CARDS, BAR_W - 54, "SD CARDS AND SYSTEM/NEXT" },
     { BAR_FULLSCREEN, BAR_W - 38, "FULL SCREEN  F11" },
     { BAR_PIN, BAR_W - 26, "PIN THE BAR" },
     { BAR_QUIT, BAR_W - 14, "QUIT  F10" },
@@ -89,20 +94,27 @@ static int text_width(const char *s)
     return (int)strlen(s) * 4 - 1;
 }
 
-static void text(uint16_t *pix, int x, int y, const char *s, uint16_t c)
+/* Text into a picture pitch wide (lower case shown as capitals). */
+static void textp(uint16_t *pix, int pitch, int x, int y, const char *s, uint16_t c)
 {
     for (; *s; s++, x += 4) {
         size_t k;
+        char ch = *s >= 'a' && *s <= 'z' ? (char)(*s - 32) : *s;
         for (k = 0; k < sizeof font / sizeof font[0]; k++)
-            if (font[k].c == *s) {
+            if (font[k].c == ch) {
                 int r, b;
                 for (r = 0; r < 5; r++)
                     for (b = 0; b < 3; b++)
-                        if (font[k].rows[r * 3 + b] == '1' && x + b >= 0 && x + b < BAR_W)
-                            pix[(y + r) * BAR_W + x + b] = c;
+                        if (font[k].rows[r * 3 + b] == '1' && x + b >= 0 && x + b < pitch)
+                            pix[(y + r) * pitch + x + b] = c;
                 break;
             }
     }
+}
+
+static void text(uint16_t *pix, int x, int y, const char *s, uint16_t c)
+{
+    textp(pix, BAR_W, x, y, s, c);
 }
 
 int otb_bar_hit(int x)
@@ -150,6 +162,7 @@ void otb_bar_draw(uint16_t *pix, const otb_bar_state *st)
         case BAR_FULLSCREEN: ic = ic_full; if (st->fullscreen) c = C_ON; break;
         case BAR_PIN: ic = ic_pin; c = st->pinned ? C_ON : C_DIM; break;
         case BAR_QUIT: ic = ic_quit; break;
+        case BAR_CARDS: ic = ic_card; if (st->cards_lit) c = C_ON; break;
         }
         if (ic)
             icon(pix, b->x + 2, 3, ic, c);
@@ -162,7 +175,7 @@ void otb_bar_draw(uint16_t *pix, const otb_bar_state *st)
 
     /* the middle: the button under the pointer, else what is going on */
     if (!mid)
-        mid = st->paused ? "PAUSED" : st->turbo ? "FULL SPEED" : NULL;
+        mid = st->paused ? "PAUSED" : st->turbo ? "FULL SPEED" : st->note;
     if (hover == BAR_PIN)
         mid = st->pinned ? "AUTO-HIDE THE BAR" : "PIN THE BAR";
     if (hover == BAR_PAUSE)
@@ -173,4 +186,69 @@ void otb_bar_draw(uint16_t *pix, const otb_bar_state *st)
         int w = text_width(mid);
         text(pix, (BAR_W - w) / 2, 5, mid, C_TEXT);
     }
+}
+
+/* ---- the panel ---------------------------------------------------------- */
+
+/* Where a row's buttons are: x and width, right to left. */
+static int btn_place(const otb_panel_row *r, int i, int *w)
+{
+    int x = PANEL_W - 3, k;
+    for (k = 1; k >= 0; k--) {
+        int bw;
+        if (!r->btn[k][0])
+            continue;
+        bw = text_width(r->btn[k]) + 6;
+        x -= bw;
+        if (k == i) {
+            *w = bw;
+            return x;
+        }
+        x -= 3;
+    }
+    *w = 0;
+    return -1;
+}
+
+static void fillp(uint16_t *pix, int h, int x, int y, int w, int hh, uint16_t c)
+{
+    int i, j;
+    for (j = y; j < y + hh; j++)
+        for (i = x; i < x + w; i++)
+            if (i >= 0 && i < PANEL_W && j >= 0 && j < h)
+                pix[j * PANEL_W + i] = c;
+}
+
+void otb_panel_draw(uint16_t *pix, const otb_panel *p, int hover_act)
+{
+    int h = otb_panel_h(p), i, k;
+    fillp(pix, h, 0, 0, PANEL_W, h, C_BG);
+    fillp(pix, h, 0, 0, PANEL_W, 1, C_EDGE);
+    fillp(pix, h, 0, 0, 1, h, C_EDGE);
+    fillp(pix, h, PANEL_W - 1, 0, 1, h, C_EDGE);
+    for (i = 0; i < p->rows; i++) {
+        const otb_panel_row *r = &p->row[i];
+        int y = 2 + i * PANEL_ROW_H;
+        textp(pix, PANEL_W, 4, y + 2, r->text, r->dim ? C_DIM : C_TEXT);
+        for (k = 0; k < 2; k++) {
+            int w, x = btn_place(r, k, &w);
+            if (x < 0)
+                continue;
+            fillp(pix, h, x, y, w, PANEL_ROW_H - 1, r->act[k] == hover_act ? C_HOVER : C_EDGE);
+            textp(pix, PANEL_W, x + 3, y + 2, r->btn[k], r->act[k] == hover_act ? C_ON : C_ICON);
+        }
+    }
+}
+
+int otb_panel_hit(const otb_panel *p, int x, int y)
+{
+    int i = (y - 2) / PANEL_ROW_H, k;
+    if (y < 2 || i < 0 || i >= p->rows)
+        return 0;
+    for (k = 0; k < 2; k++) {
+        int w, bx = btn_place(&p->row[i], k, &w);
+        if (bx >= 0 && x >= bx && x < bx + w)
+            return p->row[i].act[k];
+    }
+    return 0;
 }

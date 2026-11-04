@@ -48,6 +48,7 @@
 #include "setup.h"
 #include "video.h"
 #include "bar.h"
+#include "cards.h"
 
 #define VERSION "0.1.0"
 
@@ -58,6 +59,9 @@ static const char amiga_version[] __attribute__((used)) = "$VER: OpenTBBlue " VE
 #endif
 
 static zx m;
+/* the slots' card folders, for the card panel */
+static char slot0[1200], slot1[1200];
+static int card_mb, cards_open;
 static zx_typer typer;
 
 /* ---- keyboard ----------------------------------------------------------- */
@@ -235,7 +239,18 @@ static void bar_action(int act, int *running, int *turbo, int *paused, int *mute
     case BAR_BIGGER: otb_video_scale(1); break;
     case BAR_FULLSCREEN: otb_video_fullscreen(); break;
     case BAR_PIN: otb_video_pin(!otb_video_pinned()); break;
-    default: break;
+    case BAR_CARDS:
+        cards_open = !cards_open;
+        if (cards_open)
+            otb_cards_opened();
+        break;
+    case BAR_PANEL: break;
+    default:
+        if (act > BAR_ACT) {
+            if (otb_cards_action(act - BAR_ACT))
+                cards_open = 0;
+        }
+        break;
     }
 }
 
@@ -251,6 +266,28 @@ static int attach_card(int slot, const char *path, int card_mb)
         fprintf(stderr, "opentbblue: no memory for a %d MB card in %s, using a smaller one\n", card_mb, path);
     }
     return zx_attach_sd(&m, slot, path);
+}
+
+/* ---- the card panel's side (cards.h) ----------------------------------- */
+
+static int host_insert(int slot, const char *path)
+{
+    int rc;
+    otb_video_status(slot ? "PUTTING THE CARD IN SD1..." : "PUTTING THE CARD IN SD0...");
+    rc = attach_card(slot, path, card_mb);
+    otb_video_status(NULL);
+    if (rc)
+        return -1;
+    snprintf(slot ? slot1 : slot0, sizeof slot0, "%s", path);
+    if (slot == 0)
+        nx_power_on(&m);    /* a new system card: the Next starts on it */
+    return 0;
+}
+
+static void host_eject(int slot)
+{
+    zx_eject_sd(&m, slot);
+    (slot ? slot1 : slot0)[0] = 0;
 }
 
 /* ---- options ------------------------------------------------------------ */
@@ -415,12 +452,30 @@ int main(int argc, char **argv)
     nx_attach_serial(&m, 0, zx_esp8266_new(net));
     otb_mkdirs(pidir);
     nx_attach_serial(&m, 1, zx_nextpi_new(pidir));
+    /* The window first, so there is something to see while the cards are
+     * read (on a 68040 that takes a while). */
+    if (windowed) {
+        if (otb_video_open(&m, "OpenTBBlue", scale, full, set.bar_pinned))
+            return 1;
+        snprintf(title, sizeof title, "OpenTBBlue %s - ZX Spectrum Next", VERSION);
+        otb_video_title(title);
+        otb_video_status("STARTING: READING THE CARD IN SD0...");
+    }
     if (attach_card(0, sd, set.card_mb)) {
         fprintf(stderr, "opentbblue: cannot use %s as the SD card\n", sd);
         return 1;
     }
-    if (sd1 && attach_card(1, sd1, set.card_mb))
-        fprintf(stderr, "opentbblue: cannot use %s as the second SD card\n", sd1);
+    if (sd1) {
+        if (windowed)
+            otb_video_status("STARTING: READING THE CARD IN SD1...");
+        if (attach_card(1, sd1, set.card_mb))
+            fprintf(stderr, "opentbblue: cannot use %s as the second SD card\n", sd1);
+    }
+    if (windowed)
+        otb_video_status(NULL);
+    snprintf(slot0, sizeof slot0, "%s", sd);
+    snprintf(slot1, sizeof slot1, "%s", sd1 ? sd1 : "");
+    card_mb = set.card_mb;
     if (text) {
         unescape(text);
         zx_type(&typer, text);
@@ -448,10 +503,12 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    if (otb_video_open(&m, "OpenTBBlue", scale, full, set.bar_pinned))
-        return 1;
-    snprintf(title, sizeof title, "OpenTBBlue %s - ZX Spectrum Next", VERSION);
-    otb_video_title(title);
+    {
+        otb_cards_host h;
+        h.insert = host_insert;
+        h.eject = host_eject;
+        otb_cards_init(&h, slot0, slot1, set.check);
+    }
     for (a = 0; a < SDL_NumJoysticks(); a++)
         if (SDL_IsGameController(a))
             SDL_GameControllerOpen(a);
@@ -569,7 +626,16 @@ int main(int argc, char **argv)
                 rebuild_keys();
         }
         otb_video_bar_state(paused, turbo, muted);
-        if (paused) {
+        otb_cards_tick();
+        otb_video_bar_note(otb_cards_lit(), otb_cards_note());
+        if (cards_open) {
+            otb_panel p;
+            otb_cards_panel(&p);
+            otb_video_panel(&p);
+        } else {
+            otb_video_panel(NULL);
+        }
+        if (paused || otb_cards_busy()) {
             otb_video_idle();
             continue;
         }

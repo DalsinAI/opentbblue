@@ -15,6 +15,7 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <amitcp/socketbasetags.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,30 @@
 #define MAX_CONN 16
 
 struct Library *SocketBase;
+static int socket_users;
+
+/* bsdsocket.library for the Next's wifi and for OpenTBBlue's own downloads
+ * (fetch.c), opened once for both: 0 when it is open. Its errno is the C
+ * library's, which libcurl reads. */
+int otb_amiga_socket_open(void)
+{
+    if (!SocketBase) {
+        if (!(SocketBase = OpenLibrary((CONST_STRPTR)"bsdsocket.library", 4)))
+            return -1;  /* no TCP/IP stack running */
+        SocketBaseTags(SBTM_SETVAL(SBTC_ERRNOPTR(sizeof(errno))), (ULONG)&errno,
+                       SBTM_SETVAL(SBTC_LOGTAGPTR), (ULONG)"OpenTBBlue", TAG_DONE);
+    }
+    socket_users++;
+    return 0;
+}
+
+void otb_amiga_socket_close(void)
+{
+    if (socket_users > 0 && --socket_users == 0 && SocketBase) {
+        CloseLibrary(SocketBase);
+        SocketBase = NULL;
+    }
+}
 
 typedef struct anet {
     zx_net net;
@@ -148,11 +173,13 @@ zx_net *zx_net_posix_new(void)
 {
     anet *p;
     int i;
-    if (!SocketBase && !(SocketBase = OpenLibrary((CONST_STRPTR)"bsdsocket.library", 4)))
+    if (otb_amiga_socket_open())
         return NULL;    /* no TCP/IP stack: the Next sees no network */
     p = calloc(1, sizeof *p);
-    if (!p)
+    if (!p) {
+        otb_amiga_socket_close();
         return NULL;
+    }
     for (i = 0; i < MAX_CONN; i++)
         p->fd[i] = -1;
     p->net.open = a_open;
@@ -172,9 +199,6 @@ void zx_net_posix_free(zx_net *net)
         for (i = 0; i < MAX_CONN; i++)
             a_close(net, i);
         free(p);
-    }
-    if (SocketBase) {
-        CloseLibrary(SocketBase);
-        SocketBase = NULL;
+        otb_amiga_socket_close();
     }
 }

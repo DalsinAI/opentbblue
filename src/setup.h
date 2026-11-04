@@ -32,6 +32,7 @@ typedef struct otb_settings {
     int scale, fullscreen, fetch;
     int card_mb;              /* size of a folder card in MB, 0 to fit its files */
     int bar_pinned;           /* the control bar: 1 pinned, 0 auto-hide */
+    int check;                /* look for a newer System/Next at start */
 } otb_settings;
 
 /* opentbblue.ini, written with the defaults when missing. */
@@ -55,7 +56,6 @@ int otb_import_image(const char *image, char *drive, size_t size);
 typedef struct otb_progress {
     volatile int phase;         /* 0 nothing, 1 looking up, 2 downloading, 3 writing files */
     volatile long files;        /* files written so far */
-    char part[1400];            /* the download in progress */
 } otb_progress;
 extern otb_progress otb_prog;
 
@@ -76,6 +76,30 @@ void otb_drawer_icons(void);
 
 /* sd holds an unpacked distribution (TBBLUE.FW and machines/next). */
 int otb_card_ready(const char *sd);
+
+/* A System/Next release: a commit on the distribution's master. */
+typedef struct otb_release {
+    char id[41], date[32];
+} otb_release;
+
+/* The newest release (asks GitLab's API; waits for the answer). */
+int otb_latest(otb_release *r);
+/* The API's address, and its answer read into r, for a lookup that does
+ * not wait (fetch.c's otb_dl). */
+const char *otb_release_api(void);
+int otb_release_parse(const char *json, otb_release *r);
+/* The release a card was written from (its .opentbblue). */
+int otb_card_release(const char *sd, otb_release *r);
+/* The archive's address. */
+void otb_release_url(const otb_release *r, char *out, size_t size);
+/* The archive's place in media/: 1 when it is there whole, 0 when not
+ * (download it to tar.part), -1 when media/ cannot be made. */
+int otb_release_tar(const otb_release *r, char *tar, size_t size);
+/* A finished download (part): named as the archive, with its note. */
+int otb_release_downloaded(const otb_release *r, const char *part);
+/* Write the release's files into a card folder (made if missing; files of
+ * the card's own are left alone), with its config.ini and .opentbblue. */
+int otb_release_install(const otb_release *r, const char *sd);
 
 /* Download the latest distribution (kept in media/; not downloaded again
  * when it is already there) and write its files into sd. With update set,

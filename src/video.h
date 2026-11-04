@@ -25,9 +25,18 @@ int otb_video_get_scale(void);
 void otb_video_pin(int on);
 int otb_video_pinned(void);
 void otb_video_bar_state(int paused, int turbo, int muted);
+/* The card button lit or not, and a note for the middle of the bar. */
+void otb_video_bar_note(int lit, const char *note);
+/* The panel over the picture (bar.h), or NULL to close it. */
+struct otb_panel;
+void otb_video_panel(const struct otb_panel *p);
+int otb_video_panel_shown(void);
+/* A line on the window while it starts (drawn now), or NULL to clear it. */
+void otb_video_status(const char *line);
 /* The pointer at logical x, y (inside: it is in the window). */
 void otb_video_pointer(int x, int y, int inside);
-/* A click at logical x, y: the bar button there, or BAR_NONE. */
+/* A click at logical x, y: the bar button there, BAR_ACT + a panel
+ * button's action, BAR_PANEL elsewhere on the panel, or BAR_NONE. */
 int otb_video_click(int x, int y);
 /* The window was resized by hand: work out the scale again. */
 void otb_video_note_size(void);

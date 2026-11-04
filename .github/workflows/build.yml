@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install SDL2
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsdl2-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsdl2-dev libcurl4-openssl-dev
       - name: Build
         run: make
       - name: The tar reader and first-boot config

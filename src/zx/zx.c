@@ -1018,6 +1018,12 @@ int zx_attach_sd_dev(zx *m, int slot, struct zx_blockdev *bd)
     return nx_attach_sd_dev(m, slot, bd);
 }
 
+void zx_eject_sd(zx *m, int slot)
+{
+    if (m->model == ZX_NEXT)
+        nx_eject_sd(m, slot);
+}
+
 void zx_reset(zx *m)
 {
     int i;
