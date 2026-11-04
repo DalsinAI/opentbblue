@@ -242,7 +242,9 @@ typedef struct zxn {
     nx_clk audio_next;      /* master tick of the next output sample */
     nx_clk audio_prev;      /* master tick of the last output sample */
     uint32_t audio_frac;      /* fractional part of audio_next, 0.32 */
-    int64_t acc_l, acc_r;     /* level x ticks since the last sample */
+    /* level x ticks since the last sample: at most 2808 x one sample's
+     * ticks (about 635), so 32 bits, which a 68k adds and divides itself */
+    int32_t acc_l, acc_r;
     uint32_t ay_div;          /* master ticks towards the next AY clock */
 } zxn;
 

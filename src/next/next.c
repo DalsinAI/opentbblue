@@ -2012,8 +2012,8 @@ static void audio_accumulate(zxn *n, nx_clk dt)
     int32_t tape = n->m->ear_in ? 128 : 0;
     int32_t l = ear + mic + tape + ((int32_t)n->dac[0] + n->dac[1]) * 4;
     int32_t r = ear + mic + tape + ((int32_t)n->dac[2] + n->dac[3]) * 4;
-    n->acc_l += (int64_t)l * (int64_t)dt;
-    n->acc_r += (int64_t)r * (int64_t)dt;
+    n->acc_l += l * (int32_t)dt;
+    n->acc_r += r * (int32_t)dt;
     if ((n->nr_06 & 3) != 3) {
         nx_clk c = (n->ay_div + dt) >> 4;   /* AY clock: 28 MHz / 16 */
         int i;
@@ -2036,8 +2036,8 @@ static void audio_sample(zxn *n)
 
     if (!span)
         span = 1;
-    l = (int32_t)(n->acc_l / (int64_t)span);
-    r = (int32_t)(n->acc_r / (int64_t)span);
+    l = n->acc_l / (int32_t)span;
+    r = n->acc_r / (int32_t)span;
     n->acc_l = n->acc_r = 0;
 
     for (i = 0; i < 3; i++) {
