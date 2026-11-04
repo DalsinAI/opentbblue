@@ -192,6 +192,8 @@ struct zx_blockdev;
 int zx_attach_sd_dev(zx *m, int slot, struct zx_blockdev *bd);
 /* Host side (files.c): an image file or a folder, see storage/blockdev.h. */
 int zx_attach_sd(zx *m, int slot, const char *path);
+/* The same, with a folder made into a card of size_mb (0: sized to fit). */
+int zx_attach_sd_size(zx *m, int slot, const char *path, unsigned size_mb);
 /* Host side (files.c): plug "divmmc" or "mb03" (expansion.h) into a
  * classic machine, with the 8K esxDOS ROM read from rom_path. */
 int zx_attach_interface(zx *m, const char *name, const char *rom_path);

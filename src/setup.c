@@ -590,7 +590,9 @@ void otb_settings_defaults(otb_settings *s)
 {
     memset(s, 0, sizeof *s);
     snprintf(s->sd0, sizeof s->sd0, "%s/SD0", OTB_DRIVES);
+    snprintf(s->sd1, sizeof s->sd1, "%s/SD1", OTB_DRIVES);
     snprintf(s->pi, sizeof s->pi, "pi");
+    s->card_mb = 32768;
     s->scale = 3;
     s->fetch = 1;
 }
@@ -620,9 +622,13 @@ int otb_settings_load(otb_settings *s)
                 "# sd0, sd1: the Next's two SD card slots. A folder is used as the card;\n"
                 "#   a .img is kept in media/ and its files written into drives/<name>/,\n"
                 "#   which is then the card. sd0 is filled from the latest System/Next\n"
-                "#   on the first run. sd1 is empty unless you set it.\n"
+                "#   on the first run; sd1 starts empty. Leave sd1 blank for no second card.\n"
                 "sd0=%s\n"
-                "sd1=\n"
+                "sd1=%s\n"
+                "# card_mb: how big a folder card looks to the Next, in MB (64-32768),\n"
+                "#   or 0 to fit its files with room to spare. Each 1 GB of card takes\n"
+                "#   about 0.6 MB of memory (32 GB: about 20 MB per card).\n"
+                "card_mb=%d\n"
                 "# pi: the NextPi's files\n"
                 "pi=%s\n"
                 "# scale: window size (1-6); fullscreen: 1 to start full screen\n"
@@ -630,7 +636,7 @@ int otb_settings_load(otb_settings *s)
                 "fullscreen=0\n"
                 "# fetch: 1 to fetch System/Next when the card is empty, 0 never\n"
                 "fetch=1\n",
-                s->sd0, s->pi, s->scale);
+                s->sd0, s->sd1, s->card_mb, s->pi, s->scale);
         return fclose(fp);
     }
     while (fgets(line, sizeof line, fp)) {
@@ -643,6 +649,7 @@ int otb_settings_load(otb_settings *s)
         if (!strcmp(line, "sd0")) snprintf(s->sd0, sizeof s->sd0, "%s", eq + 1);
         else if (!strcmp(line, "sd1")) snprintf(s->sd1, sizeof s->sd1, "%s", eq + 1);
         else if (!strcmp(line, "pi")) snprintf(s->pi, sizeof s->pi, "%s", eq + 1);
+        else if (!strcmp(line, "card_mb")) s->card_mb = atoi(eq + 1);
         else if (!strcmp(line, "scale")) s->scale = atoi(eq + 1);
         else if (!strcmp(line, "fullscreen")) s->fullscreen = atoi(eq + 1) != 0;
         else if (!strcmp(line, "fetch")) s->fetch = atoi(eq + 1) != 0;

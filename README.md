@@ -89,6 +89,7 @@ or `Set`). Inside it:
 | --- | --- |
 | `opentbblue.ini` | the settings: which card is in each slot, window size, full screen, fetching. Written with the defaults on the first run; options on the command line win over it |
 | `drives/SD0/` | the Next's SD card, as ordinary files. Copy `.nex`, `.tap`, `.sna` or anything else in and NextZXOS's Browser can see it. What the Next saves appears there about a second later. `.opentbblue` records which distribution commit is on it |
+| `drives/SD1/` | the second SD card, empty to start with. NextZXOS sees it as a second drive |
 | `drives/<name>/` | a card made from an image (below) |
 | `media/` | the media repository: the official downloads, kept just as they came, each with a `.json` note of where it came from. The System/Next archive is kept here, so `--update` and new cards don't download it again |
 | `pi/` | the Raspberry Pi's files |
@@ -99,6 +100,13 @@ settings is copied into `media/` unchanged, and OpenTBBlue's own FAT reader
 `drives/<image name>/`, which is then the card. That happens once; after
 that the folder is used, with whatever the Next has saved in it. A card
 from an older OpenTBBlue in `sd/` moves to `drives/SD0/` by itself.
+
+Both cards look like 32 GB cards to the Next (`card_mb=32768`), whatever is
+in the folders. The size is fixed, and the card's partition table, boot
+sector and FAT say it, so the Next never reads past the end. Each 1 GB costs
+about 0.6 MB of memory, so a 32 GB card takes about 20 MB. Set `card_mb=0`
+for a card sized to its files (2 GB, or twice the files plus 1 GB). If the
+memory for 32 GB isn't there, OpenTBBlue uses that smaller size instead.
 
 For example, to use a card image you already have in the second slot:
 
@@ -111,7 +119,8 @@ folder. The settings file the first run writes looks like this:
 
 ```ini
 sd0=drives/SD0
-sd1=
+sd1=drives/SD1
+card_mb=32768
 pi=pi
 scale=3
 fullscreen=0

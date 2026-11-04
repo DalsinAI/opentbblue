@@ -219,6 +219,20 @@ static void pad_axis(int axis, int value)
     m.kempston = (uint8_t)(pad_joy | key_joy);
 }
 
+/* A card in a slot, card_mb big; if that much does not fit in memory, a
+ * card sized to its files instead. */
+static int attach_card(int slot, const char *path, int card_mb)
+{
+    if (card_mb > 0) {
+        if (card_mb < 64) card_mb = 64;
+        if (card_mb > 32768) card_mb = 32768;
+        if (!zx_attach_sd_size(&m, slot, path, (unsigned)card_mb))
+            return 0;
+        fprintf(stderr, "opentbblue: no memory for a %d MB card in %s, using a smaller one\n", card_mb, path);
+    }
+    return zx_attach_sd(&m, slot, path);
+}
+
 /* ---- options ------------------------------------------------------------ */
 
 static void usage(void)
@@ -380,11 +394,11 @@ int main(int argc, char **argv)
     nx_attach_serial(&m, 0, zx_esp8266_new(net));
     otb_mkdirs(pidir);
     nx_attach_serial(&m, 1, zx_nextpi_new(pidir));
-    if (zx_attach_sd(&m, 0, sd)) {
+    if (attach_card(0, sd, set.card_mb)) {
         fprintf(stderr, "opentbblue: cannot use %s as the SD card\n", sd);
         return 1;
     }
-    if (sd1 && zx_attach_sd(&m, 1, sd1))
+    if (sd1 && attach_card(1, sd1, set.card_mb))
         fprintf(stderr, "opentbblue: cannot use %s as the second SD card\n", sd1);
     if (text) {
         unescape(text);

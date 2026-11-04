@@ -30,6 +30,7 @@
 typedef struct otb_settings {
     char sd0[1024], sd1[1024], pi[1024];
     int scale, fullscreen, fetch;
+    int card_mb;              /* size of a folder card in MB, 0 to fit its files */
 } otb_settings;
 
 /* opentbblue.ini, written with the defaults when missing. */
