@@ -31,11 +31,14 @@ typedef struct otb_settings {
     char sd0[1024], sd1[1024], pi[1024];
     int scale, fullscreen, fetch;
     int card_mb;              /* size of a folder card in MB, 0 to fit its files */
+    int bar_pinned;           /* the control bar: 1 pinned, 0 auto-hide */
 } otb_settings;
 
 /* opentbblue.ini, written with the defaults when missing. */
 void otb_settings_defaults(otb_settings *s);
 int otb_settings_load(otb_settings *s);
+/* Set key=value in opentbblue.ini (the line replaced, or added). */
+int otb_settings_put(const char *key, const char *value);
 
 /* A settings path: full paths as they are, others inside otb_home. */
 void otb_resolve(char *out, size_t size, const char *path);

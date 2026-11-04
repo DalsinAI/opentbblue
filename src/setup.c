@@ -593,6 +593,7 @@ void otb_settings_defaults(otb_settings *s)
     snprintf(s->sd1, sizeof s->sd1, "%s/SD1", OTB_DRIVES);
     snprintf(s->pi, sizeof s->pi, "pi");
     s->card_mb = 32768;
+    s->bar_pinned = 1;
     s->scale = 3;
     s->fetch = 1;
 }
@@ -635,7 +636,10 @@ int otb_settings_load(otb_settings *s)
                 "scale=%d\n"
                 "fullscreen=0\n"
                 "# fetch: 1 to fetch System/Next when the card is empty, 0 never\n"
-                "fetch=1\n",
+                "fetch=1\n"
+                "# bar: the control bar under the picture, pinned or auto (it comes up\n"
+                "#   at the bottom edge); the pin button on the bar sets this\n"
+                "bar=pinned\n",
                 s->sd0, s->sd1, s->card_mb, s->pi, s->scale);
         return fclose(fp);
     }
@@ -650,12 +654,43 @@ int otb_settings_load(otb_settings *s)
         else if (!strcmp(line, "sd1")) snprintf(s->sd1, sizeof s->sd1, "%s", eq + 1);
         else if (!strcmp(line, "pi")) snprintf(s->pi, sizeof s->pi, "%s", eq + 1);
         else if (!strcmp(line, "card_mb")) s->card_mb = atoi(eq + 1);
+        else if (!strcmp(line, "bar")) s->bar_pinned = strcmp(eq + 1, "auto") != 0;
         else if (!strcmp(line, "scale")) s->scale = atoi(eq + 1);
         else if (!strcmp(line, "fullscreen")) s->fullscreen = atoi(eq + 1) != 0;
         else if (!strcmp(line, "fetch")) s->fetch = atoi(eq + 1) != 0;
     }
     fclose(fp);
     return 0;
+}
+
+int otb_settings_put(const char *key, const char *value)
+{
+    char p[1100], q[1110], line[1200];
+    size_t kl = strlen(key);
+    int done = 0;
+    FILE *in, *out;
+    otb_path(p, sizeof p, OTB_SETTINGS);
+    snprintf(q, sizeof q, "%s.new", p);
+    in = fopen(p, "r");
+    out = fopen(q, "wb");
+    if (!out) {
+        if (in) fclose(in);
+        return -1;
+    }
+    while (in && fgets(line, sizeof line, in)) {
+        if (!done && !strncmp(line, key, kl) && (line[kl] == '=' || line[kl] == ' ')) {
+            fprintf(out, "%s=%s\n", key, value);
+            done = 1;
+        } else
+            fputs(line, out);
+    }
+    if (!done)
+        fprintf(out, "%s=%s\n", key, value);
+    if (in) fclose(in);
+    if (fclose(out))
+        return -1;
+    remove(p);
+    return rename(q, p);
 }
 
 void otb_resolve(char *out, size_t size, const char *p)

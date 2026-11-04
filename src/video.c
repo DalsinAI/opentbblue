@@ -2,6 +2,7 @@
  * OpenTBBlue's window and sound (see video.h).
  */
 #include "video.h"
+#include "bar.h"
 
 #include <SDL.h>
 #include <stdio.h>
@@ -18,9 +19,39 @@ static uint16_t *conv;             /* converted lines, the texture's copy */
 static int tw, th, skipped, force = 1;
 static uint32_t audio_frame_bytes;
 
+/* the control bar */
+static SDL_Texture *bar_tex;
+static uint16_t bar_pix[BAR_W * BAR_H];
+static otb_bar_state bst;
+static int bar_dirty = 1;          /* bar_pix needs drawing */
+static int bar_shown;              /* rows showing while auto-hidden: 0..BAR_H */
+static int bar_near;               /* the pointer is at the bottom edge or on the bar */
+static Uint32 bar_left;            /* when it left */
+static int16_t *silence;
+static size_t silence_bytes;
+
+/* The bar has its own rows under the picture: pinned and in a window. */
+static int bar_below(void)
+{
+    return bst.pinned && !bst.fullscreen;
+}
+
+static void set_logical(void)
+{
+    SDL_RenderSetLogicalSize(ren, ZX_SCREEN_W, ZX_SCREEN_H + (bar_below() ? BAR_H : 0));
+    force = 1;
+    bar_dirty = 1;
+}
+
+static void size_window(void)
+{
+    if (!bst.fullscreen)
+        SDL_SetWindowSize(win, ZX_SCREEN_W * bst.scale, (ZX_SCREEN_H + (bar_below() ? BAR_H : 0)) * bst.scale);
+}
+
 unsigned long otb_frames_drawn, otb_frames_skipped, otb_lines_converted;
 
-int otb_video_open(zx *m, const char *title, int scale, int fullscreen)
+int otb_video_open(zx *m, const char *title, int scale, int fullscreen, int pinned)
 {
     SDL_AudioSpec want, have;
     int i;
@@ -31,8 +62,11 @@ int otb_video_open(zx *m, const char *title, int scale, int fullscreen)
         return -1;
     }
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+    bst.scale = scale;
+    bst.pinned = pinned;
+    bst.fullscreen = fullscreen;
     win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                           ZX_SCREEN_W * scale, ZX_SCREEN_H * scale,
+                           ZX_SCREEN_W * scale, (ZX_SCREEN_H + (bar_below() ? BAR_H : 0)) * scale,
                            SDL_WINDOW_RESIZABLE | (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     if (!win) {
         fprintf(stderr, "opentbblue: SDL: %s\n", SDL_GetError());
@@ -46,13 +80,14 @@ int otb_video_open(zx *m, const char *title, int scale, int fullscreen)
         return -1;
     }
     /* The Next's picture is 640 wide (half-width pixels) and shows as 320x256. */
-    SDL_RenderSetLogicalSize(ren, ZX_SCREEN_W, ZX_SCREEN_H);
+    set_logical();
     tw = m->screen_w;
     th = m->screen_h;
     tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, tw, th);
+    bar_tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, BAR_W, BAR_H);
     last = calloc((size_t)tw * th, sizeof *last);
     conv = calloc((size_t)tw * th, sizeof *conv);
-    if (!tex || !last || !conv) {
+    if (!tex || !bar_tex || !last || !conv) {
         fprintf(stderr, "opentbblue: cannot make the picture (%s)\n", SDL_GetError());
         return -1;
     }
@@ -81,8 +116,155 @@ void otb_video_title(const char *title)
 void otb_video_fullscreen(void)
 {
     uint32_t f = SDL_GetWindowFlags(win);
-    SDL_SetWindowFullscreen(win, (f & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
-    force = 1;
+    bst.fullscreen = !(f & SDL_WINDOW_FULLSCREEN_DESKTOP);
+    SDL_SetWindowFullscreen(win, bst.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+    set_logical();
+    if (!bst.fullscreen)
+        size_window();
+}
+
+void otb_video_scale(int step)
+{
+    int s = bst.scale + step;
+    if (bst.fullscreen || s < 1 || s > 6)
+        return;
+    bst.scale = s;
+    size_window();
+    bar_dirty = 1;
+}
+
+int otb_video_get_scale(void)
+{
+    return bst.scale;
+}
+
+void otb_video_pin(int on)
+{
+    bst.pinned = on;
+    bar_shown = 0;
+    set_logical();
+    size_window();
+}
+
+int otb_video_pinned(void)
+{
+    return bst.pinned;
+}
+
+void otb_video_bar_state(int paused, int turbo, int muted)
+{
+    if (bst.paused != paused || bst.turbo != turbo || bst.muted != muted) {
+        bst.paused = paused;
+        bst.turbo = turbo;
+        bst.muted = muted;
+        bar_dirty = 1;
+    }
+}
+
+/* Which bar row the logical y is on, or -1 when the bar isn't there. */
+static int bar_row(int y)
+{
+    int top = bar_below() ? ZX_SCREEN_H : ZX_SCREEN_H - bar_shown;
+    if (!bar_below() && !bar_shown)
+        return -1;
+    return y >= top && y < top + (bar_below() ? BAR_H : bar_shown) ? y - top : -1;
+}
+
+void otb_video_pointer(int x, int y, int inside)
+{
+    int on;
+    if (!inside) {
+        x = y = -1;
+    }
+    on = bar_row(y) >= 0;
+    if (otb_bar_hover(on ? x : -1))
+        bar_dirty = 1;
+    if (!bar_below()) {
+        /* the bottom edge brings it up; it goes a moment after the pointer leaves */
+        int near = inside && (on || y >= ZX_SCREEN_H - 3);
+        if (near)
+            bar_near = 1;
+        else if (bar_near) {
+            bar_near = 0;
+            bar_left = SDL_GetTicks();
+        }
+    }
+}
+
+int otb_video_click(int x, int y)
+{
+    if (bar_row(y) < 0)
+        return BAR_NONE;
+    return otb_bar_hit(x);
+}
+
+void otb_video_note_size(void)
+{
+    int w, h;
+    SDL_GetWindowSize(win, &w, &h);
+    if (!bst.fullscreen && w >= ZX_SCREEN_W) {
+        int s = (w + ZX_SCREEN_W / 2) / ZX_SCREEN_W;
+        if (s != bst.scale) {
+            bst.scale = s;
+            bar_dirty = 1;
+        }
+    }
+}
+
+/* Slide the auto-hidden bar one step; 1 when it moved. */
+static int bar_step(void)
+{
+    int want = 0;
+    if (bar_below())
+        return 0;
+    if (bar_near || (bar_left && SDL_GetTicks() - bar_left < 1000))
+        want = BAR_H;
+    if (want > bar_shown) {
+        bar_shown += 3;
+        if (bar_shown > want) bar_shown = want;
+        return 1;
+    }
+    if (want < bar_shown) {
+        bar_shown -= 2;
+        if (bar_shown < want) bar_shown = want;
+        if (!bar_shown)
+            force = 1;      /* uncover the picture under it */
+        return 1;
+    }
+    return 0;
+}
+
+/* Draw the picture and the bar. */
+static void present(void)
+{
+    SDL_Rect d, sr;
+    if (bar_dirty) {
+        otb_bar_draw(bar_pix, &bst);
+        SDL_UpdateTexture(bar_tex, NULL, bar_pix, BAR_W * 2);
+        bar_dirty = 0;
+    }
+    SDL_RenderClear(ren);
+    d.x = 0; d.y = 0; d.w = ZX_SCREEN_W; d.h = ZX_SCREEN_H;
+    SDL_RenderCopy(ren, tex, NULL, &d);
+    if (bar_below()) {
+        d.y = ZX_SCREEN_H; d.h = BAR_H;
+        SDL_RenderCopy(ren, bar_tex, NULL, &d);
+    } else if (bar_shown) {
+        sr.x = 0; sr.y = 0; sr.w = BAR_W; sr.h = bar_shown;
+        d.y = ZX_SCREEN_H - bar_shown; d.h = bar_shown;
+        SDL_RenderCopy(ren, bar_tex, &sr, &d);
+    }
+    SDL_RenderPresent(ren);
+}
+
+void otb_video_idle(void)
+{
+    int moved = bar_step();
+    SDL_Delay(20);
+    if (moved || bar_dirty || force) {
+        force = 0;
+        present();
+    }
 }
 
 void otb_video_redraw(void)
@@ -126,7 +308,17 @@ void otb_video_frame(zx *m, int turbo)
 
     if (dev && !turbo) {
         Uint32 q;
-        SDL_QueueAudio(dev, m->audio, (Uint32)m->audio_samples * 4);
+        if (bst.muted) {
+            size_t n = (size_t)m->audio_samples * 4;
+            if (n > silence_bytes) {
+                free(silence);
+                silence = calloc(1, n);
+                silence_bytes = silence ? n : 0;
+            }
+            if (silence)
+                SDL_QueueAudio(dev, silence, (Uint32)n);
+        } else
+            SDL_QueueAudio(dev, m->audio, (Uint32)m->audio_samples * 4);
         q = SDL_GetQueuedAudioSize(dev);
         /* Less than a frame of sound left: we are behind real time. */
         late = q < audio_frame_bytes;
@@ -152,10 +344,13 @@ void otb_video_frame(zx *m, int turbo)
         return;
     }
     skipped = 0;
-    otb_lines_converted += (unsigned long)convert(m, &y0, &y1);
-    if (y1 < y0)
-        return;     /* nothing changed: the window still shows this picture */
     {
+        int moved = bar_step();
+        otb_lines_converted += (unsigned long)convert(m, &y0, &y1);
+        if (y1 < y0 && !moved && !bar_dirty)
+            return;     /* nothing changed: the window still shows this picture */
+    }
+    if (y1 >= y0) {
         SDL_Rect r;
         r.x = 0;
         r.y = y0;
@@ -163,9 +358,7 @@ void otb_video_frame(zx *m, int turbo)
         r.h = y1 - y0 + 1;
         SDL_UpdateTexture(tex, &r, conv + (size_t)y0 * tw, tw * 2);
     }
-    SDL_RenderClear(ren);
-    SDL_RenderCopy(ren, tex, NULL, NULL);
-    SDL_RenderPresent(ren);
+    present();
     otb_frames_drawn++;
 }
 
@@ -175,5 +368,6 @@ void otb_video_close(void)
         SDL_CloseAudioDevice(dev);
     free(last);
     free(conv);
+    free(silence);
     SDL_Quit();
 }

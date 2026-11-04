@@ -15,9 +15,24 @@
 
 #define OTB_MAX_SKIP 4
 
-int otb_video_open(zx *m, const char *title, int scale, int fullscreen);
+int otb_video_open(zx *m, const char *title, int scale, int fullscreen, int pinned);
 void otb_video_title(const char *title);
 void otb_video_fullscreen(void);
+/* Window size one step (1x..6x) bigger (+1) or smaller (-1). */
+void otb_video_scale(int step);
+int otb_video_get_scale(void);
+/* The control bar (bar.h): pinned under the picture, or auto-hidden. */
+void otb_video_pin(int on);
+int otb_video_pinned(void);
+void otb_video_bar_state(int paused, int turbo, int muted);
+/* The pointer at logical x, y (inside: it is in the window). */
+void otb_video_pointer(int x, int y, int inside);
+/* A click at logical x, y: the bar button there, or BAR_NONE. */
+int otb_video_click(int x, int y);
+/* The window was resized by hand: work out the scale again. */
+void otb_video_note_size(void);
+/* While paused: keep the bar alive, about 50 times a second. */
+void otb_video_idle(void);
 void otb_video_turbo(int on);
 /* The window was uncovered or resized: draw the whole picture next time. */
 void otb_video_redraw(void);

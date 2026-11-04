@@ -73,6 +73,18 @@ and the mouse is a Kempston mouse.
 F1 is a hard reset (back through the firmware), F4 a soft reset, F9 runs at
 full speed, F11 switches full screen, and F10 quits.
 
+### The control bar
+
+Under the picture is a small bar, as on AmiCradle's instances: hard reset,
+soft reset, pause, full speed, sound on or off, a smaller or bigger window
+(1x to 6x), full screen, pin and quit. Pointing at a button names it. The
+pin button chooses between the bar staying under the picture (pinned, the
+default) and auto-hide, where it slides up over the bottom of the picture
+when the pointer reaches the bottom edge and goes again a second after the
+pointer leaves. In full screen it always auto-hides. The choice is kept in
+`opentbblue.ini` as `bar=pinned` or `bar=auto`. Clicks on the bar don't
+reach the Kempston mouse.
+
 ## Where the files go
 
 | System | Folder |
@@ -125,6 +137,7 @@ pi=pi
 scale=3
 fullscreen=0
 fetch=1
+bar=pinned
 ```
 
 The first boot writes `machines/next/config.ini` on the card with `timing=0` (VGA at
