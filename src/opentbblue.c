@@ -405,6 +405,7 @@ int main(int argc, char **argv)
     if (!otb_card_ready(sd))
         return fail("%s is not a Next SD card (it has no TBBLUE.FW)", sd);
     otb_default_config(sd);
+    otb_drawer_icons();
 
     if (zx_create(&m, ZX_NEXT, NULL)) {
         fprintf(stderr, "opentbblue: out of memory\n");

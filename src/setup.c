@@ -341,8 +341,16 @@ int otb_untar(const char *tar, const char *dir, long *files)
 static int run_curl(const char *url, const char *out, int quiet)
 {
     char cmd[3000];
-    snprintf(cmd, sizeof cmd, "curl -fL --retry 3 %s -o \"%s\" \"%s\"",
-             quiet ? "-sS" : "-#", out, url);
+    const char *curl = "curl";
+#ifdef __amigaos__
+    /* The package's own curl, beside the program (Install-OpenTBBlue also
+     * puts it in C: when C: has none). */
+    struct stat st;
+    if (stat("PROGDIR:curl", &st) == 0)
+        curl = "PROGDIR:curl";
+#endif
+    snprintf(cmd, sizeof cmd, "%s -fL --retry 3 %s -o \"%s\" \"%s\"",
+             curl, quiet ? "-sS" : "-#", out, url);
     return system(cmd) == 0 ? 0 : -1;
 }
 
@@ -711,3 +719,65 @@ void otb_migrate(void)
     if (is_dir(old) && !is_dir(sd0) && otb_mkdirs(drives) == 0 && rename(old, sd0) == 0)
         printf("OpenTBBlue: the SD card folder is now %s\n", sd0);
 }
+
+/* ---- Workbench icons ---------------------------------------------------- */
+
+#ifdef __amigaos__
+#include <dirent.h>
+
+static int file_exists(const char *p)
+{
+    struct stat st;
+    return stat(p, &st) == 0;
+}
+
+/* dir.info from PROGDIR:Icons/icon, unless dir has an icon already. */
+static void give_icon(const char *dir, const char *icon)
+{
+    char from[300], to[1200];
+    size_t n = strlen(dir);
+    if (!n || dir[n - 1] == ':' || dir[n - 1] == '/' || !is_dir(dir))
+        return;
+    snprintf(to, sizeof to, "%s.info", dir);
+    snprintf(from, sizeof from, "PROGDIR:Icons/%s", icon);
+    if (!file_exists(to) && file_exists(from))
+        copy_into(from, to);
+}
+
+void otb_drawer_icons(void)
+{
+    const char *h = otb_home();
+    char p[1100], drives[1100];
+    DIR *d;
+    struct dirent *de;
+    if (!h)
+        return;
+    give_icon(h, strcmp(base_name(h), "OpenTBBlue-data") ? "drawer.info" : "OpenTBBlue-data.info");
+    /* Only the drawers the program keeps: never a drawer inside a card,
+     * whose files are the Next's. */
+    otb_path(drives, sizeof drives, OTB_DRIVES);
+    if ((d = opendir(h)) != NULL) {
+        while ((de = readdir(d)) != NULL) {
+            if (de->d_name[0] == '.')
+                continue;
+            join(p, sizeof p, h, de->d_name);
+            give_icon(p, !strcmp(de->d_name, OTB_DRIVES) ? "drives.info" :
+                         !strcmp(de->d_name, OTB_MEDIA) ? "media.info" : "drawer.info");
+        }
+        closedir(d);
+    }
+    if ((d = opendir(drives)) != NULL) {
+        while ((de = readdir(d)) != NULL) {
+            if (de->d_name[0] == '.')
+                continue;
+            join(p, sizeof p, drives, de->d_name);
+            give_icon(p, "card.info");
+        }
+        closedir(d);
+    }
+}
+#else
+void otb_drawer_icons(void)
+{
+}
+#endif

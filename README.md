@@ -34,7 +34,7 @@ Each release has an installer for every system it runs on:
 | Windows 10 and 11 | `OpenTBBlue-…-windows-setup.exe` | run it; OpenTBBlue is in the Start menu (no administrator needed) |
 | macOS 11 and later (Apple silicon) | `OpenTBBlue-…-macos-arm64.dmg` | open it and drag OpenTBBlue to Applications. It isn't signed by Apple yet, so the first time, right-click it and choose Open |
 | Debian, Ubuntu, Mint (x86-64) | `OpenTBBlue-…-linux-x86_64.deb` | `sudo apt install ./OpenTBBlue-…-linux-x86_64.deb`; it's in the games menu. Other Linuxes: the `.tar.gz` |
-| AmigaOS 3.2, 68040 or better, RTG | `OpenTBBlue-…-amiga-68040.lha` | unpack it and run Install-OpenTBBlue, which puts the OpenTBBlue drawer in Work: (or where you choose) and copies GFOpenGPU's SDL2.module if it isn't there. The first download needs a `curl` (OpenUp installs one). Updating keeps your OpenTBBlue-data |
+| AmigaOS 3.2, 68040 or better, RTG | `OpenTBBlue-…-amiga-68040.lha` | unpack it and run Install-OpenTBBlue, which puts the OpenTBBlue drawer in Work: (or where you choose) and copies GFOpenGPU's SDL2.module if it isn't there. It brings its own `curl` and `gfopentls.library` for the first download, and offers to fetch System/Next straight away. Updating keeps your OpenTBBlue-data |
 
 Then start it. The first start shows a small window while it downloads
 System/Next (about 100 MB) and writes it to the SD card, and then the Next
@@ -75,7 +75,7 @@ full speed, F11 switches full screen, and F10 quits.
 
 ### The control bar
 
-Under the picture is a small bar, as on AmiCradle's instances: hard reset,
+Under the picture is a small bar: hard reset,
 soft reset, pause, full speed, sound on or off, a smaller or bigger window
 (1x to 6x), full screen, pin and quit. Pointing at a button names it. The
 pin button chooses between the bar staying under the picture (pinned, the
@@ -145,7 +145,7 @@ The first boot writes `machines/next/config.ini` on the card with `timing=0` (VG
 (hold Space while it boots, then press E) like on a real Next.
 
 The download uses your system's `curl`. Windows 10 and later, macOS and Linux
-include it. On AmigaOS, any `curl` in the path works (OpenUp installs one in `C:`).
+include it. On AmigaOS the package brings its own, with `gfopentls.library` for HTTPS.
 
 ## The distribution
 

@@ -5,8 +5,11 @@
 #   - DalsinAI/gfopensdk (OpenNDK headers) at SDK_COMMIT
 #   - DalsinAI/gfopenrtg's SDL2 link stub (it loads LIBS:GFOpenGPU/SDL2.module
 #     at run time) at RTG_COMMIT
-# Then packs OpenTBBlue-<version>-amiga-68040.lha: the OpenTBBlue drawer
-# with its GlowIcons, and Install-OpenTBBlue beside it.
+# and, with build-curl.sh, the curl command and gfopentls.library (HTTPS)
+# the first start downloads System/Next with. Then packs
+# OpenTBBlue-<version>-amiga-68040.lha: the OpenTBBlue drawer with its
+# GlowIcons and curl, Network/ (gfopentls.library and its CA list), and
+# Install-OpenTBBlue beside them.
 #
 #   package/amiga/build-ci.sh VERSION OUTDIR
 set -eu
@@ -72,7 +75,10 @@ make -C "$ROOT" amiga AMIGA_CC="$TC/bin/m68k-amigaos-gcc" AMIGA_SDL="$WORK/sdl"
 fpu=$("$TC/bin/m68k-amigaos-objdump" -d "$ROOT/opentbblue.68k" | grep -cE '\sf(add|sub|mul|div|sqrt|cmp|tst|mov[ex]?)[a-z.]*\s' || true)
 echo "FPU instructions: $fpu (libnix's startup has two fmovel to fpcr)"
 
-# 5. The archive: the drawer, its icons, the Installer script.
+# 5. curl and gfopentls.library (build-curl.sh).
+sh "$HERE/build-curl.sh" "$TC" "$WORK/sdk/OpenNDK" "$WORK/net"
+
+# 6. The archive: the drawer, its icons, the Installer script.
 PKG=$WORK/pkg
 rm -rf "$PKG"
 mkdir -p "$PKG/OpenTBBlue"
@@ -83,12 +89,26 @@ for i in OpenTBBlue README.md Amiga.md RELEASE-NOTES.md LICENSE; do
     cp "$HERE/files/$i.info" "$PKG/OpenTBBlue/"
 done
 cp "$HERE/files/OpenTBBlue-drawer.info" "$PKG/OpenTBBlue.info"
+# the icons the program gives the drawers it makes (make_drawer_icons.py)
+mkdir -p "$PKG/OpenTBBlue/Icons"
+cp "$HERE"/files/Icons/*.info "$PKG/OpenTBBlue/Icons/"
+# curl beside the program, its licences, and Network/ for the Installer
+cp "$WORK/net/curl" "$PKG/OpenTBBlue/curl"
+mkdir -p "$PKG/OpenTBBlue/Licences" "$PKG/Network/Libs" "$PKG/Network/S/GFOpenTLS"
+cp "$WORK"/net/Licences/* "$PKG/OpenTBBlue/Licences/"
+cp "$WORK/net/gfopentls.library" "$PKG/Network/Libs/"
+[ ! -f "$WORK/net/ca-bundle.pem" ] || cp "$WORK/net/ca-bundle.pem" "$PKG/Network/S/GFOpenTLS/"
 sed "s/^(set #version \"[^\"]*\")/(set #version \"$VERSION\")/; s/^; \$VER: Install-OpenTBBlue [^ ]*/; \$VER: Install-OpenTBBlue $VERSION/; s/installs OpenTBBlue [0-9][^ ]* for/installs OpenTBBlue $VERSION for/" \
     "$HERE/files/Install-OpenTBBlue" > "$PKG/Install-OpenTBBlue"
 cp "$HERE/files/Install-OpenTBBlue.info" "$PKG/"
+# PKG_OUT: the unpacked package there too (for a lab); NO_LHA: no archive
+if [ -n "${PKG_OUT:-}" ]; then
+    mkdir -p "$PKG_OUT" && cp -R "$PKG"/. "$PKG_OUT"/
+fi
+[ -z "${NO_LHA:-}" ] || exit 0
 LHA=$(command -v lha || command -v jlha)
 NAME=OpenTBBlue-$VERSION-amiga-68040.lha
 rm -f "$DIST/$NAME"
-(cd "$PKG" && "$LHA" a "$DIST/$NAME" OpenTBBlue OpenTBBlue.info Install-OpenTBBlue Install-OpenTBBlue.info)
+(cd "$PKG" && "$LHA" a "$DIST/$NAME" OpenTBBlue OpenTBBlue.info Network Install-OpenTBBlue Install-OpenTBBlue.info)
 "$LHA" l "$DIST/$NAME"
 ls -l "$DIST/$NAME"

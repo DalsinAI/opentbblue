@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """OpenTBBlue's icon art: a dark rounded key with the four stripes across
 its corner. Writes opentbblue.png (512), opentbblue-64.png (the Amiga
-badge), opentbblue.ico (Windows, 16 to 256). Needs Pillow.
+badge), opentbblue.ico (Windows, 16 to 256), and the Amiga badges for the
+drawers the first start makes: sdcard-64.png (a card, for drives/ and
+each card in it) and media-64.png (the downloads, a box with the stripes).
+Needs Pillow.
 MIT, Copyright (c) 2026 AmigaChrome Team."""
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
@@ -37,7 +40,44 @@ def art(size: int) -> Image.Image:
     return im.resize((size, size), Image.LANCZOS)
 
 
+def sdcard(size: int) -> Image.Image:
+    """An SD card: the cut corner, the contacts, the stripes on its label."""
+    s = 4 * size
+    im = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    l, t, r, b, cut = int(s * 0.18), int(s * 0.06), int(s * 0.82), int(s * 0.94), int(s * 0.16)
+    body = [(l + cut, t), (r, t), (r, b), (l, b), (l, t + cut)]
+    d.polygon(body, fill=(28, 30, 38, 255), outline=(210, 214, 224, 255), width=s // 64)
+    cw = (r - l - cut) // 9                         # the contacts along the top
+    for i in range(8):
+        x = l + cut + cw // 2 + i * cw
+        d.rectangle([x, t + s // 32, x + cw * 2 // 3, t + s // 7], fill=(232, 190, 64, 255))
+    lt, lb = int(s * 0.42), int(s * 0.86)           # the label: the four stripes
+    bw = (lb - lt) // 4
+    for i, c in enumerate(STRIPES):
+        d.rectangle([l + s // 16, lt + i * bw, r - s // 16, lt + (i + 1) * bw - 1], fill=c + (255,))
+    return im.resize((size, size), Image.LANCZOS)
+
+
+def media(size: int) -> Image.Image:
+    """The downloads kept as they came: a box, the stripes on its side."""
+    s = 4 * size
+    im = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    l, t, r, b, depth = int(s * 0.10), int(s * 0.30), int(s * 0.74), int(s * 0.92), int(s * 0.16)
+    d.polygon([(l, t), (l + depth, t - depth), (r + depth, t - depth), (r, t)], fill=(70, 74, 90, 255))
+    d.polygon([(r, t), (r + depth, t - depth), (r + depth, b - depth), (r, b)], fill=(44, 46, 58, 255))
+    d.rectangle([l, t, r, b], fill=(28, 30, 38, 255), outline=(210, 214, 224, 255), width=s // 64)
+    bw = (r - l) // 8
+    for i, c in enumerate(STRIPES):
+        x = l + (i + 2) * bw
+        d.rectangle([x, t + s // 16, x + bw - s // 64, b - s // 16], fill=c + (255,))
+    return im.resize((size, size), Image.LANCZOS)
+
+
 if __name__ == "__main__":
+    sdcard(64).save(HERE / "sdcard-64.png")
+    media(64).save(HERE / "media-64.png")
     big = art(512)
     big.save(HERE / "opentbblue.png")
     art(64).save(HERE / "opentbblue-64.png")

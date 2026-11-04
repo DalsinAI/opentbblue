@@ -69,6 +69,11 @@ const char *otb_home(void);
 /* path = otb_home()/name. */
 void otb_path(char *out, size_t size, const char *name);
 
+/* AmigaOS: GlowIcons (PROGDIR:Icons/) for the drawers the program keeps,
+ * where they have none yet: its home, drives/ and each card's drawer,
+ * media/. Elsewhere nothing. */
+void otb_drawer_icons(void);
+
 /* sd holds an unpacked distribution (TBBLUE.FW and machines/next). */
 int otb_card_ready(const char *sd);
 
