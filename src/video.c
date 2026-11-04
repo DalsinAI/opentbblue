@@ -187,7 +187,7 @@ void otb_video_fullscreen(void)
     /* as big as fits, keeping the shape, with room for the window's
      * borders and the screen's title bar */
     {
-        double fw = (double)(sw - 16) / ZX_SCREEN_W, fh = (double)(sh - 40) / h;
+        double fw = (double)(sw - 24) / ZX_SCREEN_W, fh = (double)(sh - 64) / h;
         double f = fw < fh ? fw : fh;
         if (f < 1)
             f = 1;
@@ -196,10 +196,12 @@ void otb_video_fullscreen(void)
         s = (int)f;
         bst.scale = s;
         SDL_SetWindowSize(win, (int)(ZX_SCREEN_W * f), (int)(h * f));
-        /* in the middle (SDL2.module leaves a CENTERED window where it was) */
+        /* in the middle (SDL2.module leaves a CENTERED window where it was;
+         * the room left keeps the window and its borders on the screen,
+         * or Intuition will not move it) */
         {
             int x = (sw - (int)(ZX_SCREEN_W * f)) / 2, y = (sh - (int)(h * f)) / 2;
-            SDL_SetWindowPosition(win, x > 0 ? x : 0, y > 20 ? y : 20);
+            SDL_SetWindowPosition(win, x > 0 ? x : 0, y > 0 ? y : 0);
         }
         bar_dirty = 1;
         force = 1;
