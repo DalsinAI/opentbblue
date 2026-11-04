@@ -3,6 +3,12 @@
  */
 #include "bar.h"
 
+#if defined(__AMIGA__) || defined(__amigaos__)
+#define FULL_TIP "FULL SCREEN  HELP"   /* an Amiga keyboard stops at F10 */
+#else
+#define FULL_TIP "FULL SCREEN  F11"
+#endif
+
 #include <string.h>
 
 #define RGB(r, g, b) (uint16_t)(((r) >> 3) << 11 | ((g) >> 2) << 5 | ((b) >> 3))
@@ -62,7 +68,7 @@ static const button buttons[] = {
     { BAR_SMALLER, 66, "SMALLER WINDOW" },
     { BAR_BIGGER, 90, "BIGGER WINDOW" },
     { BAR_CARDS, BAR_W - 54, "SD CARDS AND SYSTEM/NEXT" },
-    { BAR_FULLSCREEN, BAR_W - 38, "FULL SCREEN  F11" },
+    { BAR_FULLSCREEN, BAR_W - 38, FULL_TIP },
     { BAR_PIN, BAR_W - 26, "PIN THE BAR" },
     { BAR_QUIT, BAR_W - 14, "QUIT  F10" },
 };

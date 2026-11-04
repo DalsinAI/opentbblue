@@ -104,7 +104,8 @@ time, with Left Ctrl as fire. Game controllers are a Kempston joystick too,
 and the mouse is a Kempston mouse.
 
 F1 is a hard reset (back through the firmware), F4 a soft reset, F9 runs at
-full speed, F11 switches full screen, and F10 quits.
+full speed, F11 switches full screen (Help on an Amiga, whose keyboard
+stops at F10), and F10 quits.
 
 ### The control bar
 

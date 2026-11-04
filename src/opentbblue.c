@@ -29,7 +29,8 @@
  * SHIFT, Ctrl and Alt are SYMBOL SHIFT, and punctuation types what it shows.
  * Backspace is DELETE, the arrows are the cursor keys, Esc is BREAK, Tab is
  * EXTEND MODE. Game controllers are a Kempston joystick.
- * F1 hard reset, F4 soft reset, F9 full speed, F11 full screen, F10 quits;
+ * F1 hard reset, F4 soft reset, F9 full speed, F11 (Help on an Amiga) full
+ * screen, F10 quits;
  * the control bar under the picture (bar.c) does the same and more.
  */
 #include <SDL.h>
@@ -527,7 +528,7 @@ int main(int argc, char **argv)
                 if (down && !ev.key.repeat) {
                     int act = sc == SDL_SCANCODE_F10 ? BAR_QUIT : sc == SDL_SCANCODE_F1 ? BAR_HARD_RESET :
                               sc == SDL_SCANCODE_F4 ? BAR_SOFT_RESET : sc == SDL_SCANCODE_F9 ? BAR_TURBO :
-                              sc == SDL_SCANCODE_F11 ? BAR_FULLSCREEN : BAR_NONE;
+                              (sc == SDL_SCANCODE_F11 || sc == SDL_SCANCODE_HELP || ev.key.keysym.sym == SDLK_HELP) ? BAR_FULLSCREEN : BAR_NONE;
                     if (act != BAR_NONE) {
                         bar_action(act, &running, &turbo, &paused, &muted);
                         break;

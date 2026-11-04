@@ -152,7 +152,7 @@ void otb_video_title(const char *title)
 /* AmigaOS: full screen is the window at the biggest size the Workbench
  * screen holds, in the middle of it. SDL2.module's own full-screen screen
  * showed the picture blown up past the screen (only its grey corner), so
- * the window stays on the Workbench screen; F11 or the button again puts it
+ * the window stays on the Workbench screen; Help or the button again puts it
  * back at the size it had. */
 static int amiga_big, amiga_scale;
 
