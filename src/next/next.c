@@ -1876,7 +1876,6 @@ static void b_io_write(void *ctx, uint16_t port, uint8_t v)
  * directly so the compiler can inline them (no pointer call per access).
  */
 #define Z80_INCLUDED 1
-#define Z80_SPECIALISE 1
 #define Z80_NAME(name) nx_##name
 #define Z80_API static
 #define BUS_FETCH(a) b_fetch(bus->ctx, a)

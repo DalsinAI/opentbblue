@@ -13,18 +13,6 @@
 #ifndef Z80_INCLUDED
 #define Z80_NAME(name) name
 #define Z80_API
-#endif
-
-/*
- * Z80_SPECIALISE: dispatch unprefixed and CB opcodes through 256-way
- * switches whose every case inlines the decoder with its opcode as a
- * constant, so the compiler folds the x/y/z field decoding and register
- * selection away and each case is just that instruction's work.
- */
-#ifdef Z80_SPECIALISE
-#define Z80_HOT static inline __attribute__((always_inline))
-#else
-#define Z80_HOT static
 #define BUS_FETCH(a) bus->fetch(bus->ctx, a)
 #define BUS_READ(a) bus->read(bus->ctx, a)
 #define BUS_WRITE(a, v) bus->write(bus->ctx, a, v)
@@ -457,36 +445,10 @@ Z80_API void Z80_NAME(z80_nmi)(z80 *z, const z80_bus *bus)
 
 /* ---- execution -------------------------------------------------------- */
 
-Z80_HOT void exec_main(z80 *z, const z80_bus *bus, uint8_t op, int idx);
-Z80_HOT void exec_cb(z80 *z, const z80_bus *bus, uint8_t op);
+static void exec_main(z80 *z, const z80_bus *bus, uint8_t op, int idx);
+static void exec_cb(z80 *z, const z80_bus *bus, uint8_t op);
 static void exec_ddcb(z80 *z, const z80_bus *bus, int idx);
 static void exec_ed(z80 *z, const z80_bus *bus, uint8_t op);
-
-#ifdef Z80_SPECIALISE
-#define Z80_C4(f, n) f(n) f((n) + 1) f((n) + 2) f((n) + 3)
-#define Z80_C16(f, n) Z80_C4(f, n) Z80_C4(f, (n) + 4) Z80_C4(f, (n) + 8) Z80_C4(f, (n) + 12)
-#define Z80_C64(f, n) Z80_C16(f, n) Z80_C16(f, (n) + 16) Z80_C16(f, (n) + 32) Z80_C16(f, (n) + 48)
-#define Z80_C256(f) Z80_C64(f, 0) Z80_C64(f, 64) Z80_C64(f, 128) Z80_C64(f, 192)
-#define Z80_MAIN_CASE(n) case n: exec_main(z, bus, n, IDX_HL); break;
-#define Z80_CB_CASE(n) case n: exec_cb(z, bus, n); break;
-static void exec_main_hl(z80 *z, const z80_bus *bus, uint8_t op)
-{
-    switch (op) { Z80_C256(Z80_MAIN_CASE) }
-}
-static void exec_main_idx(z80 *z, const z80_bus *bus, uint8_t op, int idx)
-{
-    exec_main(z, bus, op, idx);
-}
-static void exec_cb_sw(z80 *z, const z80_bus *bus, uint8_t op)
-{
-    switch (op) { Z80_C256(Z80_CB_CASE) }
-}
-#define EXEC_MAIN(z, bus, op, idx) ((idx) == IDX_HL ? exec_main_hl(z, bus, op) : exec_main_idx(z, bus, op, idx))
-#define EXEC_CB(z, bus, op) exec_cb_sw(z, bus, op)
-#else
-#define EXEC_MAIN(z, bus, op, idx) exec_main(z, bus, op, idx)
-#define EXEC_CB(z, bus, op) exec_cb(z, bus, op)
-#endif
 
 Z80_API void Z80_NAME(z80_step)(z80 *z, const z80_bus *bus)
 {
@@ -513,13 +475,13 @@ Z80_API void Z80_NAME(z80_step)(z80 *z, const z80_bus *bus)
     }
     if (op == 0xcb) {
         if (idx == IDX_HL)
-            EXEC_CB(z, bus, fetch_op(z, bus));
+            exec_cb(z, bus, fetch_op(z, bus));
         else
             exec_ddcb(z, bus, idx);
     } else if (op == 0xed) {
         exec_ed(z, bus, fetch_op(z, bus));
     } else {
-        EXEC_MAIN(z, bus, op, idx);
+        exec_main(z, bus, op, idx);
     }
 }
 
@@ -530,7 +492,7 @@ static void swap8(uint8_t *a, uint8_t *b)
     *b = t;
 }
 
-Z80_HOT void exec_main(z80 *z, const z80_bus *bus, uint8_t op, int idx)
+static void exec_main(z80 *z, const z80_bus *bus, uint8_t op, int idx)
 {
     int x = op >> 6, y = (op >> 3) & 7, zz = op & 7, p = y >> 1, q = y & 1;
     uint16_t addr, v16, nn;
@@ -814,7 +776,7 @@ Z80_HOT void exec_main(z80 *z, const z80_bus *bus, uint8_t op, int idx)
     }
 }
 
-Z80_HOT void exec_cb(z80 *z, const z80_bus *bus, uint8_t op)
+static void exec_cb(z80 *z, const z80_bus *bus, uint8_t op)
 {
     int x = op >> 6, y = (op >> 3) & 7, zz = op & 7;
     uint16_t addr;
