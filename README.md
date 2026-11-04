@@ -82,8 +82,7 @@ full speed, F11 switches full screen, and F10 quits.
 | AmigaOS | `PROGDIR:OpenTBBlue-data` |
 
 `OPENTBBLUE_HOME` overrides the location (on AmigaOS, set it with `SetEnv`
-or `Set`). Inside it, laid out the way
-AmiCradle keeps its machines:
+or `Set`). Inside it:
 
 | Inside | Is |
 | --- | --- |

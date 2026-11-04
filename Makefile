@@ -42,11 +42,12 @@ tests/frames: tests/frames.c $(CORE) $(HDRS)
 test: tests/setup_test
 	./tests/setup_test
 
-# AmigaOS 3.2, 68040: see docs/Amiga.md. Built with OpenAmigaGCC 16.2.0-open3
+# AmigaOS 3.2, 68040: see docs/Amiga.md. Built with OpenAmigaGCC 16.2.0-open6
 # (OpenNDK); -m68040 picks the soft-float libraries by itself. The core has
 # no floating point at all. -fomit-frame-pointer frees a register for the
-# CPU loop. SDL2 is the OpenGPU SDL2 stub (SDL2.module) from the stove, and
-# the network is bsdsocket.library.
+# CPU loop. SDL2 is GFOpenGPU's SDL2 link library (it loads SDL2.module at
+# run time), and the network is bsdsocket.library. package/amiga/build-ci.sh
+# fetches all of it and builds this.
 AMIGA_CC      ?= m68k-amigaos-gcc
 AMIGA_CFLAGS  ?= -O3 -m68040 -mtune=68040 -fomit-frame-pointer -fno-strict-aliasing -fno-tree-loop-distribute-patterns -DNDEBUG
 AMIGA_SDL     ?= $(dir $(shell which $(AMIGA_CC) 2>/dev/null))../m68k-amigaos

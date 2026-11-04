@@ -2,14 +2,12 @@
  * OpenTBBlue's own files on the host, and the first-run fetch of the
  * official Next software distribution (System/Next, gitlab.com/thesmog358/tbblue).
  *
- * Everything lives in one folder (otb_home), laid out the way AmiCradle
- * keeps its machines:
+ * Everything lives in one folder (otb_home):
  *
  *   opentbblue.ini  settings, written with the defaults on the first run.
  *   drives/SD0/     the Next's first SD card, as a plain host folder: the
  *                   distribution's files plus whatever the Next saves. The
- *                   emulator shows it to the Next as a FAT32 card, as
- *                   AmiCradle gives each machine host folders for its drives.
+ *                   emulator shows it to the Next as a FAT32 card.
  *   drives/<name>/  more cards: an .img's files written into a folder.
  *   media/          the media repository: the official downloads (the
  *                   System/Next archive) and any .img given to OpenTBBlue,
