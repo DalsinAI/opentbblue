@@ -16,6 +16,9 @@
 #include "../zx/zx.h"
 
 #include <string.h>
+#ifdef OTB_CHECK_MIX
+#include <stdlib.h>
+#endif
 
 /* ---- helpers -------------------------------------------------------------- */
 
@@ -589,12 +592,55 @@ static uint16_t mix(const zxn *n, int wx, int wy, int s, int spr_pix)
 
 /* ---- the lazy renderer ---------------------------------------------------- */
 
+/* With the tilemap and Layer 2 off, no sprite pixel in the span and one of
+ * the plain priority orders (not the blending ones), every layer but the
+ * ULA is transparent, so mix() comes down to the ULA pixel or the fallback
+ * colour. That is NextZXOS and most 48K/128K software, nearly all the time.
+ * OTB_CHECK_MIX builds check this against mix() for every pixel. */
+static int ula_only(const zxn *n, int xa, int xb)
+{
+    int x;
+    if ((n->nr_6b & 0x80) || n->l2_en || ((n->nr_15 >> 2) & 7) > 5)
+        return 0;
+    for (x = xa; x < xb; x++)
+        if (n->spr_line[x] & 0x100)
+            return 0;
+    return 1;
+}
+
 static void draw_span(zxn *n, int wy, int xa, int xb)
 {
     uint16_t *row = n->screen[wy];
     int x;
     if (n->spr_line_y != wy)
         sprite_line(n, wy);
+    if (ula_only(n, xa, xb)) {
+        uint16_t fb = rgb8to9(n->fallback);
+        int ula_off = (n->nr_68 & 0x80) != 0, s;
+        /* Both half-pixels are the same ULA pixel unless hi-res (Timex mode 6,
+         * no shadow screen) or the half-pixel scroll is on; LoRes never
+         * looks at the half. */
+        int halves = ((n->port_ff & 4) && !((n->port_7ffd >> 3) & 1)) || (n->nr_68 & 4);
+        for (x = xa; x < xb; x++) {
+            for (s = 0; s < 2; s++) {
+                int mt, border;
+                uint16_t rgb;
+                if (s && !halves) {
+                    row[2 * x + 1] = row[2 * x];
+                } else {
+                    rgb = ula_pixel(n, x, wy, s, &mt, &border);
+                    row[2 * x + s] = (mt || ula_off) ? fb : rgb;
+                }
+#ifdef OTB_CHECK_MIX
+                if (row[2 * x + s] != mix(n, x, wy, s, n->spr_line[x])) {
+                    fprintf(stderr, "mix fast path differs at %d,%d.%d\n", x, wy, s);
+                    abort();
+                }
+#endif
+            }
+        }
+        return;
+    }
     for (x = xa; x < xb; x++) {
         int sp = n->spr_line[x];
         row[2 * x] = mix(n, x, wy, 0, sp);

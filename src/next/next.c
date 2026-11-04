@@ -1167,6 +1167,21 @@ static void automap_fetch(zxn *n, uint16_t a, int pre)
 
     if (!(n->port_en[1] & 1) || !(n->nr_0a & 0x10))
         return;
+    /* Most fetches are at no entry point: then nothing triggers, and the
+     * held state just carries on (what the full path below works out with
+     * every trigger 0). */
+    if (a >= 0x4000 || ((a & 0xff00) != 0x0000 && (a & 0xff00) != 0x3d00 && (a & 0xfff8) != 0x1ff8 &&
+                        a != 0x04c6 && a != 0x0562 && a != 0x04d7 && a != 0x056a)) {
+        if (pre)
+            n->automap_hold = n->automap_held;
+        else
+            n->automap_held = n->automap_hold;
+        if (n->automap_held != n->automap) {
+            n->automap = n->automap_held;
+            remap(n);
+        }
+        return;
+    }
     if ((a & 0xff00) == 0x0000 && (a & 0xc7) == 0) {
         int i = (a >> 3) & 7;
         int ep = n->nr_b8 >> i & 1, valid = n->nr_b9 >> i & 1, timing = n->nr_ba >> i & 1;

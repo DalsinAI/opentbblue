@@ -43,16 +43,26 @@ frames):
 | `b_fetch` | 8% | the bus's opcode fetch |
 | `z80_step` | 5% | the Z80N itself |
 
-Next, in that order, each one checked to give the same picture and sound
-frame for frame, and measured:
+Done, each one checked frame for frame with `tests/compare.sh` (five
+scenarios: NextBASIC, the tilemap demo, Warhawk, show512 and Spectron
+2084, with every 50th picture and all of the sound hashed). Building with
+`-DOTB_CHECK_MIX` also checks the mixer's fast path against the full mixer
+on every pixel.
 
-1. Mixer fast paths: when only the ULA is on (no Layer 2, sprites or
-   tilemap visible, which is most of the time in NextZXOS and in 48K/128K
-   games), draw the line straight from the ULA. Also build a whole line from
-   each layer once, instead of calling every layer for every pixel.
-2. divMMC automap: work out once, when the automap settings change, which
-   fetch addresses can trigger it, so most fetches skip the check.
-3. Events: keep the next due event's tick in one variable, so most cycles
+| Change | NextZXOS menu, 3000 frames (x86-64) |
+| --- | --- |
+| Before | 16.9 s (177 frames a second) |
+| Mixer: ULA-only lines skip the other layers; one ULA pixel for both halves unless hi-res or half-pixel scroll | |
+| divMMC automap: fetches at no entry point skip the trigger checks | 10.1 s (296 frames a second) |
+
+That's 40% less time, with the same pictures and sound in all five
+scenarios. Across all five scenarios, 75 s went down to 54 s.
+
+Next:
+
+1. A ULA line renderer, a byte (8 pixels) at a time, for the plain
+   Spectrum screen. `ula_pixel` is now the largest cost.
+2. Events: keep the next due event's tick in one variable, so most cycles
    make one compare.
-4. Measure on the AmiCradle 68040 lab and then on a real 68040, and post the
+3. Measure on the AmiCradle 68040 lab and then on a real 68040, and post the
    table with each change.
