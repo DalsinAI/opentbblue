@@ -25,7 +25,7 @@ NET  = src/frontend/net_win32.c
 NET_LIBS = -lws2_32
 endif
 HDRS = $(wildcard src/*.h src/*/*.h)
-OWN  = src/opentbblue.c src/video.c src/setup.c src/fatimg.c
+OWN  = src/opentbblue.c src/video.c src/setup.c src/fatimg.c src/firstrun.c
 
 all: opentbblue
 

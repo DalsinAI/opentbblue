@@ -247,6 +247,19 @@ static int save_ppm(const char *path)
     return fclose(fp);
 }
 
+/* A problem that stops the start: said on stderr, and in a box when there
+ * is a window to show (started from an icon there is no terminal). */
+static int windowed = 1;
+static int fail(const char *fmt, const char *a)
+{
+    char msg[1600];
+    snprintf(msg, sizeof msg, fmt, a);
+    fprintf(stderr, "opentbblue: %s\n", msg);
+    if (windowed)
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "OpenTBBlue", msg, NULL);
+    return 1;
+}
+
 static int is_file(const char *p)
 {
     struct stat st;
@@ -322,31 +335,30 @@ int main(int argc, char **argv)
     otb_resolve(pi_buf, sizeof pi_buf, pidir);
     pidir = pi_buf;
 
+    windowed = headless < 0;
     if (card_folder(sd, sd_buf, sizeof sd_buf))
-        return 1;
+        return fail("cannot make a card of %s (see the messages above)", sd);
     sd = sd_buf;
     if (sd1) {
         if (card_folder(sd1, sd1_buf, sizeof sd1_buf))
-            return 1;
+            return fail("cannot make a card of %s (see the messages above)", sd1);
         sd1 = sd1_buf;
         otb_mkdirs(sd1);
     }
 
     /* The card: fetched on the first run, or when asked. */
     if (update || (fetch && !otb_card_ready(sd))) {
-        if (otb_mkdirs(sd) || (otb_fetch(sd, update) && !otb_card_ready(sd))) {
-            fprintf(stderr, "opentbblue: no SD card to boot. Put the System/Next distribution in %s,\n"
-                            "or run opentbblue --fetch when the network is up.\n", sd);
-            return 1;
-        }
+        if (otb_mkdirs(sd) || ((windowed ? otb_fetch_shown(sd, update) : otb_fetch(sd, update)) &&
+                               !otb_card_ready(sd)))
+            return fail("System/Next could not be downloaded, so there is no SD card to boot.\n"
+                        "Check the network is up and start OpenTBBlue again, or put the\n"
+                        "System/Next files in %s yourself.", sd);
         if (fetch == 2 || update)
             if (headless < 0 && !text)
                 return 0;
     }
-    if (!otb_card_ready(sd)) {
-        fprintf(stderr, "opentbblue: %s is not a Next SD card (no TBBLUE.FW)\n", sd);
-        return 1;
-    }
+    if (!otb_card_ready(sd))
+        return fail("%s is not a Next SD card (it has no TBBLUE.FW)", sd);
     otb_default_config(sd);
 
     if (zx_create(&m, ZX_NEXT, NULL)) {

@@ -37,6 +37,7 @@
 #endif
 
 static char home[1024];
+otb_progress otb_prog;
 
 static int is_dir(const char *p)
 {
@@ -307,6 +308,7 @@ int otb_untar(const char *tar, const char *dir, long *files)
             if (fclose(out) || rc) { rc = -1; break; }
             if (pad && fseek(in, (long)pad, SEEK_CUR)) { rc = -1; break; }
             count++;
+            otb_prog.files = count;
         } else {
             /* Links and devices: the distribution has none worth keeping. */
             if (fseek(in, (long)(size + pad), SEEK_CUR)) { rc = -1; break; }
@@ -418,6 +420,8 @@ int otb_fetch(const char *sd, int update)
         printf("OpenTBBlue: the Next's SD card is already at %s\n", sd);
         return 0;
     }
+    otb_prog.phase = 1;
+    otb_prog.files = 0;
     printf("OpenTBBlue: looking up the latest System/Next distribution...\n");
     if (latest(id, date)) {
         fprintf(stderr, "opentbblue: cannot reach gitlab.com/thesmog358/tbblue (is curl installed and the network up?)\n");
@@ -437,6 +441,8 @@ int otb_fetch(const char *sd, int update)
     if (file_size(tar) < 1000000) {
         snprintf(url, sizeof url, TBBLUE_TAR, id, id);
         snprintf(part, sizeof part, "%s.part", tar);
+        snprintf(otb_prog.part, sizeof otb_prog.part, "%s", part);
+        otb_prog.phase = 2;
         printf("OpenTBBlue: downloading System/Next %.10s (%s), about 100 MB...\n", id, date);
         if (run_curl(url, part, 0) || rename(part, tar)) {
             fprintf(stderr, "opentbblue: the download failed\n");
@@ -447,6 +453,7 @@ int otb_fetch(const char *sd, int update)
     } else {
         printf("OpenTBBlue: using System/Next %.10s from the media repository\n", id);
     }
+    otb_prog.phase = 3;
     printf("OpenTBBlue: writing its files into %s\n", sd);
     if (otb_untar(tar, sd, &files) || files < 100) {
         fprintf(stderr, "opentbblue: unpacking failed (%ld files)\n", files);

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OpenTBBlue
+GenericName=ZX Spectrum Next emulator
+Comment=The ZX Spectrum Next (TBBlue) in one window; the first start downloads System/Next
+Exec=opentbblue
+Icon=opentbblue
+Terminal=false
+Categories=Game;Emulator;
+Keywords=Spectrum;Next;TBBlue;ZX;emulator;

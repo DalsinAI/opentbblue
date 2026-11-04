@@ -6,3 +6,7 @@
 *.o
 /tests/frames
 /tests/frames.exe
+/build-amiga/
+/dist/
+/pkg/
+/opentbblue-icon.o

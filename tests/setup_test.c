@@ -27,7 +27,7 @@ static void header(const char *name, const char *prefix, char type, size_t size)
     memset(h, 0, 512);
     snprintf((char *)h, 100, "%s", name);
     snprintf((char *)h + 100, 8, "%07o", 0644);
-    snprintf((char *)h + 124, 12, "%011lo", (unsigned long)size);
+    snprintf((char *)h + 124, 12, "%011lo", (unsigned long)size & 077777777777ul);
     snprintf((char *)h + 136, 12, "%011o", 0);
     h[156] = (unsigned char)type;
     memcpy(h + 257, "ustar", 6);

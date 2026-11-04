@@ -49,6 +49,18 @@ void otb_migrate(void);
  * path put in drive. 0 on success. */
 int otb_import_image(const char *image, char *drive, size_t size);
 
+/* How a fetch is going, for a window to show (firstrun.c). */
+typedef struct otb_progress {
+    volatile int phase;         /* 0 nothing, 1 looking up, 2 downloading, 3 writing files */
+    volatile long files;        /* files written so far */
+    char part[1400];            /* the download in progress */
+} otb_progress;
+extern otb_progress otb_prog;
+
+/* otb_fetch with a small window showing its progress (firstrun.c); without
+ * a display it is otb_fetch. */
+int otb_fetch_shown(const char *sd, int update);
+
 /* The folder above, made if missing; NULL if it cannot be. */
 const char *otb_home(void);
 

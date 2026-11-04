@@ -1,0 +1,99 @@
+; $VER: Install-OpenTBBlue 0.1.0 (4.11.2026)
+; The Amiga Installer script for OpenTBBlue, an AmiCradle game port.
+; Made by amicradle scripts/port_installer.py: change the spec, not this file.
+; Run it from its icon, beside the OpenTBBlue drawer where the archive was unpacked.
+
+(set @app-name "OpenTBBlue")
+(set #version "0.1.0")
+(set #drawer "OpenTBBlue")
+(set #program "OpenTBBlue")
+(set #space 253907)  ; KB
+
+(onerror
+    (message (cat "OpenTBBlue was not installed completely." "\n\n" @error-msg
+                  "\n\nFiles already copied stay where they are. Run Install-OpenTBBlue again to finish.")))
+
+; the Installer, the CPU and the FPU
+(if (< @installer-version 2818051)
+    (abort "OpenTBBlue needs Installer 43.3 or newer. This one is older: install AmigaOS 3.2 or a newer Installer."))
+(set #cpu (database "cpu"))
+(if (not (or (= #cpu "68040") (= #cpu "68060") (= #cpu "68080")))
+    (abort (cat "OpenTBBlue needs a 68040, 68060 or 68080. This Amiga has a " #cpu ".")))
+
+; the package: the drawer beside this script
+(set #source (pathonly (expandpath @icon)))
+(set #from (tackon #source #drawer))
+(if (<> (exists #from (noreq)) 2)
+    (abort "The OpenTBBlue drawer is not beside Install-OpenTBBlue. Unpack the whole archive, then run Install-OpenTBBlue from there."))
+(if (<> (exists (tackon #from #program) (noreq)) 1)
+    (abort "The OpenTBBlue drawer has no OpenTBBlue in it. Unpack the whole archive again."))
+
+(welcome "This installs OpenTBBlue 0.1.0 for AmigaOS 3.2 on a 68040, 68060 or 68080.")
+
+; where: the parent drawer
+(set #default
+    (if (= (exists "Work:" (noreq)) 2) "Work:"
+        (if (= (exists "Work:" (noreq)) 2) "Work:" "SYS:")))
+(set #parent
+    (askdir
+        (prompt "Where should the OpenTBBlue drawer go? Choose the drawer to put it in.")
+        (help "The Installer makes or updates a drawer called OpenTBBlue in the drawer you choose. An update keeps your saves and settings.")
+        (default #default)))
+(set #dest (tackon #parent #drawer))
+(set #update (= (exists #dest (noreq)) 2))
+; in KB where the Installer can say so: in bytes, 2 GB free and more does not fit
+(set #free (if (>= @installer-version 2883584) (getdiskspace #parent "K")
+    (/ (getdiskspace #parent) 1024)))
+(if (and (>= #free 0) (< #free #space))
+    (abort (cat "There is not enough room in " #parent ": OpenTBBlue needs 260 MB free.")))
+
+; GFOpenGPU's modules: in LIBS:GFOpenGPU/, or copied there from LIBS:OpenGPU/
+; (older instances have only that); none is copied before all are found
+(if (and (<> (exists "LIBS:GFOpenGPU/SDL2.module" (noreq)) 1) (<> (exists "LIBS:OpenGPU/SDL2.module" (noreq)) 1))
+    (abort "OpenTBBlue needs GFOpenGPU's SDL2.module, which is in neither LIBS:GFOpenGPU/ nor LIBS:OpenGPU/. Install GFOpenGPU (SDL2) first, then run Install-OpenTBBlue again. Nothing has been installed."))
+(if (<> (exists "LIBS:GFOpenGPU" (noreq)) 2)
+    (makedir "LIBS:GFOpenGPU"))
+(if (<> (exists "LIBS:GFOpenGPU/SDL2.module" (noreq)) 1)
+    (copylib
+        (prompt "Copying SDL2.module from LIBS:OpenGPU/ to LIBS:GFOpenGPU/")
+        (help @copylib-help)
+        (source "LIBS:OpenGPU/SDL2.module")
+        (dest "LIBS:GFOpenGPU")))
+(complete 20)
+
+; the drawer: everything in it, but what the player has made
+(set #kept "")
+(if (exists (tackon #dest "OpenTBBlue-data") (noreq))
+    (set #kept (if (= #kept "") "OpenTBBlue-data" (cat #kept "|" "OpenTBBlue-data"))))
+(if (not #update)
+    (makedir #dest))
+(if (= #kept "")
+    (copyfiles
+        (prompt "Copying OpenTBBlue")
+        (help @copyfiles-help)
+        (source #from)
+        (dest #dest)
+        (all)
+        (optional "force" "askuser"))
+    (copyfiles
+        (prompt (cat "Updating OpenTBBlue. Kept as they are: " #kept))
+        (help @copyfiles-help)
+        (source #from)
+        (dest #dest)
+        (pattern (cat "~(" #kept ")"))
+        (optional "force" "askuser")))
+(if (<> (exists (tackon #parent "OpenTBBlue.info") (noreq)) 1)
+    (copyfiles
+        (help @copyfiles-help)
+        (source #source)
+        (dest #parent)
+        (choices "OpenTBBlue.info")))
+
+(set @default-dest #dest)
+(complete 100)
+(if @pretend
+    (message (cat "Pretend: nothing was copied or changed. OpenTBBlue would have gone in " #dest "."))
+    (message (cat "OpenTBBlue 0.1.0 is installed in " #dest "."
+                  "\n\nTo start it, open the OpenTBBlue drawer and double-click the OpenTBBlue icon."
+                  (if (= #kept "") "" (cat "\n\nLeft as they were: " #kept ".")))))
+(exit (quiet))

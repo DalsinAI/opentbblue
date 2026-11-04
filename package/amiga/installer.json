@@ -1,0 +1,13 @@
+{
+  "name": "OpenTBBlue",
+  "version": "0.1.0",
+  "drawer": "OpenTBBlue",
+  "program": "OpenTBBlue",
+  "cpu": "68040", "fpu": false,
+  "space": 260000000,
+  "modules": ["SDL2.module"],
+  "keep": ["OpenTBBlue-data"],
+  "parent": "Work:",
+  "badge": "../icons/opentbblue-64.png",
+  "script": "Install-OpenTBBlue"
+}

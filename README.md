@@ -18,6 +18,21 @@ joystick, ESP8266 wifi through your computer's network, and a Raspberry Pi
 (NextPi) with its files in a host folder. The machine core comes from
 [ZxNextEmu](https://github.com/DalsinAI/ZxNextEmu).
 
+## Installing
+
+Each release has an installer for every system it runs on:
+
+| System | Get | Then |
+| --- | --- | --- |
+| Windows 10 and 11 | `OpenTBBlue-…-windows-setup.exe` | run it; OpenTBBlue is in the Start menu (no administrator needed) |
+| macOS 11 and later (Apple silicon) | `OpenTBBlue-…-macos-arm64.dmg` | open it and drag OpenTBBlue to Applications. It isn't signed by Apple yet, so the first time, right-click it and choose Open |
+| Debian, Ubuntu, Mint (x86-64) | `OpenTBBlue-…-linux-x86_64.deb` | `sudo apt install ./OpenTBBlue-…-linux-x86_64.deb`; it's in the games menu. Other Linuxes: the `.tar.gz` |
+| AmigaOS 3.2, 68040 or better, RTG | `OpenTBBlue-…-amiga-68040.lha` | unpack it and run Install-OpenTBBlue; it needs GFOpenGPU's SDL2.module and, for the first download, a `curl` (OpenUp has both) |
+
+Then start it. The first start shows a small window while it downloads
+System/Next (about 100 MB) and writes it to the SD card, and then the Next
+boots. Every start after that goes straight to the Next.
+
 ## Running
 
 ```sh

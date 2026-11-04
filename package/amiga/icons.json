@@ -1,0 +1,11 @@
+{
+  "drawer": {"name": "OpenTBBlue", "file": "OpenTBBlue-drawer.info", "width": 360, "height": 120},
+  "badge": "../icons/opentbblue-64.png",
+  "icons": [
+    {"file": "OpenTBBlue.info", "kind": "tool", "stack": 262144},
+    {"file": "README.md.info", "kind": "readme"},
+    {"file": "Amiga.md.info", "kind": "readme"},
+    {"file": "RELEASE-NOTES.md.info", "kind": "readme"},
+    {"file": "LICENSE.info", "kind": "readme"}
+  ]
+}
