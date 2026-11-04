@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #if defined(__AMIGA__) || defined(__amigaos__)
+#include <dos/dostags.h>
 #include <proto/dos.h>
 #endif
 
@@ -90,6 +91,23 @@ static const char *home_var(void)
 #endif
 }
 
+#if defined(__AMIGA__) || defined(__amigaos__)
+/* "PROGDIR:x" as a full path (Work:OpenTBBlue/x). PROGDIR: means this
+ * program's drawer only to this program: the Shell that system() starts
+ * for curl has a PROGDIR: of its own, so paths handed to it must be full. */
+static void amiga_full(char *out, size_t size, const char *path)
+{
+    char buf[1024];
+    BPTR dir = GetProgramDir();
+    if (strncmp(path, "PROGDIR:", 8) || !dir || !NameFromLock(dir, (STRPTR)buf, sizeof buf) ||
+        !AddPart((STRPTR)buf, (CONST_STRPTR)(path + 8), sizeof buf)) {
+        snprintf(out, size, "%s", path);
+        return;
+    }
+    snprintf(out, size, "%s", buf);
+}
+#endif
+
 const char *otb_home(void)
 {
     const char *e;
@@ -111,6 +129,13 @@ const char *otb_home(void)
 #endif
     else
         snprintf(home, sizeof home, "%s", OTB_DEFAULT_HOME);
+#if defined(__AMIGA__) || defined(__amigaos__)
+    {
+        char full[1024];
+        amiga_full(full, sizeof full, home);
+        snprintf(home, sizeof home, "%s", full);
+    }
+#endif
     if (otb_mkdirs(home)) {
         fprintf(stderr, "opentbblue: cannot make %s\n", home);
         home[0] = 0;
@@ -341,17 +366,38 @@ int otb_untar(const char *tar, const char *dir, long *files)
 static int run_curl(const char *url, const char *out, int quiet)
 {
     char cmd[3000];
-    const char *curl = "curl";
-#ifdef __amigaos__
+#if defined(__AMIGA__) || defined(__amigaos__)
     /* The package's own curl, beside the program (Install-OpenTBBlue also
-     * puts it in C: when C: has none). */
+     * puts it in C: when C: has none), by its full path. Started from
+     * Workbench the program has no Shell input or output, which system()
+     * needs, so curl runs with NIL: for both and the stack HTTPS needs. */
+    char curl[1100] = "curl", out_full[1100];
     struct stat st;
+    BPTR in, nil;
+    LONG rc;
     if (stat("PROGDIR:curl", &st) == 0)
-        curl = "PROGDIR:curl";
-#endif
-    snprintf(cmd, sizeof cmd, "%s -fL --retry 3 %s -o \"%s\" \"%s\"",
-             curl, quiet ? "-sS" : "-#", out, url);
+        amiga_full(curl, sizeof curl, "PROGDIR:curl");
+    amiga_full(out_full, sizeof out_full, out);
+    snprintf(cmd, sizeof cmd, "\"%s\" -fL --retry 3 -sS -o \"%s\" \"%s\"", curl, out_full, url);
+    (void)quiet;
+    in = Open((CONST_STRPTR)"NIL:", MODE_OLDFILE);
+    nil = Open((CONST_STRPTR)"NIL:", MODE_NEWFILE);
+    if (!in || !nil) {
+        if (in) Close(in);
+        if (nil) Close(nil);
+        return -1;
+    }
+    rc = SystemTags((CONST_STRPTR)cmd, SYS_Input, in, SYS_Output, nil, NP_StackSize, 65536, TAG_DONE);
+    if (rc == -1) {     /* not started: the handles are still ours */
+        Close(in);
+        Close(nil);
+    }
+    return rc == 0 ? 0 : -1;
+#else
+    snprintf(cmd, sizeof cmd, "curl -fL --retry 3 %s -o \"%s\" \"%s\"",
+             quiet ? "-sS" : "-#", out, url);
     return system(cmd) == 0 ? 0 : -1;
+#endif
 }
 
 /* The newest commit on the distribution's master: its id and date. */

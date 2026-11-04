@@ -52,12 +52,17 @@
     (abort "OpenTBBlue needs GFOpenGPU's SDL2.module, which is in neither LIBS:GFOpenGPU/ nor LIBS:OpenGPU/. Install GFOpenGPU (SDL2) first, then run Install-OpenTBBlue again. Nothing has been installed."))
 (if (<> (exists "LIBS:GFOpenGPU" (noreq)) 2)
     (makedir "LIBS:GFOpenGPU"))
+; copyfiles, not copylib: the module has no version string, and copylib
+; leaves a file it cannot compare uncopied
 (if (<> (exists "LIBS:GFOpenGPU/SDL2.module" (noreq)) 1)
-    (copylib
+    (copyfiles
         (prompt "Copying SDL2.module from LIBS:OpenGPU/ to LIBS:GFOpenGPU/")
-        (help @copylib-help)
-        (source "LIBS:OpenGPU/SDL2.module")
-        (dest "LIBS:GFOpenGPU")))
+        (help @copyfiles-help)
+        (source "LIBS:OpenGPU")
+        (dest "LIBS:GFOpenGPU")
+        (choices "SDL2.module")))
+(if (and (not @pretend) (<> (exists "LIBS:GFOpenGPU/SDL2.module" (noreq)) 1))
+    (abort "SDL2.module could not be copied to LIBS:GFOpenGPU/. Nothing else has been installed."))
 (complete 20)
 
 ; the network: gfopentls.library for HTTPS, its CA list, and curl in C:
