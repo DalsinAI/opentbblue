@@ -155,7 +155,7 @@ int main(void)
     snprintf(p, sizeof p, "%s/machines/next/config.ini", dir);
     CHECK(file_is(p, "timing=0\n"));
     /* A config the user has is never replaced. */
-    fp = fopen(p, "w");
+    fp = fopen(p, "wb");
     fputs("timing=3\n", fp);
     fclose(fp);
     CHECK(otb_default_config(dir) == 0);
