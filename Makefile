@@ -22,7 +22,7 @@ CORE = src/z80/z80.c \
 NET  = src/frontend/net_posix.c
 ifeq ($(OS),Windows_NT)
 NET  = src/frontend/net_win32.c
-LDLIBS += -lws2_32
+NET_LIBS = -lws2_32
 endif
 HDRS = $(wildcard src/*.h src/*/*.h)
 OWN  = src/opentbblue.c src/video.c src/setup.c
@@ -30,7 +30,7 @@ OWN  = src/opentbblue.c src/video.c src/setup.c
 all: opentbblue
 
 opentbblue: $(OWN) $(CORE) $(NET) $(HDRS)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(OWN) $(CORE) $(NET) $(SDL_LIBS) $(LDLIBS) -o $@
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(OWN) $(CORE) $(NET) $(SDL_LIBS) $(NET_LIBS) $(LDLIBS) -o $@
 
 tests/setup_test: tests/setup_test.c src/setup.c src/setup.h
 	$(CC) $(CFLAGS) tests/setup_test.c src/setup.c $(LDLIBS) -o $@
