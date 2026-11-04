@@ -168,22 +168,43 @@ void otb_video_fullscreen(void)
         settle = 50;
         return;
     }
-    if (SDL_GetDesktopDisplayMode(0, &dm) || dm.w <= 0 || dm.h <= 0)
-        return;
-    /* room for the window's borders and the screen's title bar */
-    s = (dm.w - 16) / ZX_SCREEN_W;
-    if ((dm.h - 40) / h < s)
-        s = (dm.h - 40) / h;
-    if (s < 1)
-        s = 1;
-    amiga_scale = bst.scale;
-    amiga_big = 1;
-    bst.scale = s;
-    size_window();
-    SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-    bar_dirty = 1;
-    force = 1;
-    settle = 50;
+    /* the screen's size, by whichever call SDL2.module answers */
+    {
+        SDL_Rect r;
+        int i = SDL_GetWindowDisplayIndex(win);
+        if (i < 0)
+            i = 0;
+        dm.w = dm.h = 0;
+        if (!SDL_GetDisplayUsableBounds(i, &r) && r.w > 0 && r.h > 0) {
+            dm.w = r.w;
+            dm.h = r.h;
+        } else if (!SDL_GetDisplayBounds(i, &r) && r.w > 0 && r.h > 0) {
+            dm.w = r.w;
+            dm.h = r.h;
+        } else if (SDL_GetCurrentDisplayMode(i, &dm) || dm.w <= 0 || dm.h <= 0) {
+            if (SDL_GetDesktopDisplayMode(i, &dm) || dm.w <= 0 || dm.h <= 0)
+                return;
+        }
+    }
+    /* as big as fits, keeping the shape; room for the window's borders
+     * and the screen's title bar */
+    {
+        double fw = (double)(dm.w - 16) / ZX_SCREEN_W, fh = (double)(dm.h - 40) / h;
+        double f = fw < fh ? fw : fh;
+        if (f < 1)
+            f = 1;
+        amiga_scale = bst.scale;
+        amiga_big = 1;
+        s = (int)f;
+        bst.scale = s;
+        SDL_SetWindowSize(win, (int)(ZX_SCREEN_W * f), (int)(h * f));
+        SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        bar_dirty = 1;
+        force = 1;
+        settle = 50;
+        fprintf(stderr, "opentbblue: full screen: %dx%d screen, window %dx%d\n", dm.w, dm.h,
+                (int)(ZX_SCREEN_W * f), (int)(h * f));
+    }
 }
 #else
 void otb_video_fullscreen(void)
