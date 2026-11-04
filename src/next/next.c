@@ -491,12 +491,14 @@ static void schedule_line_int(zxn *n)
     int64_t pix;
     if (n->line_int >= t->vc && n->line_int != 0) {
         n->line_int_clk = ~(uint64_t)0;
+        n->ev_next = 0;
         return;
     }
     pix = ula_pix(n, 255, vc_ula);
     n->line_int_clk = n->frame_start + (uint64_t)pix * 4;
     if (n->line_int_clk < n->clk)
         n->line_int_clk += n->frame_ticks;
+    n->ev_next = 0;
 }
 
 /* ---- CTC (device/ctc_chan.vhd), 4 channels at 28 MHz ---------------------- */
@@ -636,6 +638,7 @@ static void copper_mode(zxn *n, uint8_t mode)
         n->cu_move_clear = 0;
     }
     n->copper_mode = mode;
+    n->ev_next = 0;
     n->cu_clk = n->clk;
     copper_restart_point(n);
 }
@@ -658,6 +661,7 @@ static void nr_write(zxn *n, uint8_t reg, uint8_t v)
 {
     int i, special_old;
 
+    n->ev_next = 0;
     sync_video(n);
 
     switch (reg) {
@@ -1143,8 +1147,14 @@ static inline void contend(zxn *n)
 
 static void copper_run(zxn *n, uint64_t upto);
 
-static void events(zxn *n)
+/* Every bus cycle asks whether something falls due. Mostly nothing does,
+ * so the earliest due time is kept in ev_next and the full look is only
+ * taken once the clock reaches it. Anything that can bring an event
+ * earlier (a port or nextreg write, the line interrupt, the copper, the
+ * UARTs, a reset, a new frame) sets ev_next to 0. */
+static void events_due(zxn *n)
 {
+    uint64_t t;
     if (n->clk >= n->line_int_clk) {
         raise_int_at(n, SRC_LINE, 0, n->line_int_clk);
         n->line_int_clk += n->frame_ticks;
@@ -1155,9 +1165,38 @@ static void events(zxn *n)
         ctc_advance(n, n->clk);
     if (n->uart_next <= n->clk)
         nx_uart_run(n, n->clk);
+    if (n->copper_mode) {
+        n->ev_next = 0;
+        return;
+    }
+    t = n->line_int_clk;
+    if (ctc_next_event(n) < t)
+        t = ctc_next_event(n);
+    if (n->uart_next < t)
+        t = n->uart_next;
+    n->ev_next = t;
+}
+
+static inline void events(zxn *n)
+{
+#ifdef OTB_NO_EVCACHE
+    n->ev_next = 0;
+#endif
+    if (n->clk >= n->ev_next)
+        events_due(n);
 }
 
 /* ---- divMMC automap on opcode fetches (device/divmmc.vhd) --------------- */
+
+/* True when a fetch at a could trigger divMMC automap (the entry points
+ * below), or automap is off altogether (then automap_fetch does nothing). */
+static inline int automap_entry(const zxn *n, uint16_t a)
+{
+    if (!(n->port_en[1] & 1) || !(n->nr_0a & 0x10))
+        return 1;
+    return a < 0x4000 && ((a & 0xff00) == 0x0000 || (a & 0xff00) == 0x3d00 || (a & 0xfff8) == 0x1ff8 ||
+                          a == 0x04c6 || a == 0x0562 || a == 0x04d7 || a == 0x056a);
+}
 
 static void automap_fetch(zxn *n, uint16_t a, int pre)
 {
@@ -1274,6 +1313,7 @@ static void port_write(zxn *n, uint16_t port, uint8_t v)
     uint8_t lsb = (uint8_t)port, msb = (uint8_t)(port >> 8);
     int i;
 
+    n->ev_next = 0;
     if (!(port & 1)) {
         sync_video(n);
         sync_audio(n);
@@ -1531,6 +1571,16 @@ static uint8_t b_fetch(void *ctx, uint16_t addr)
     events(n);
     if (contention_active(n) && n->slot[addr >> 13].contend)
         contend(n);
+    if (!automap_entry(n, addr)) {
+        /* Not an entry point: the held state carries on, which is what
+         * the two calls below work out with every trigger 0. */
+        if (n->automap_hold != n->automap_held || n->automap != n->automap_held)
+            automap_fetch(n, addr, 1);
+        sl = &n->slot[addr >> 13];
+        v = sl->rd[addr & 0x1fff];
+        n->clk += 4u * n->tick + (n->speed == 3 && sl->wait);
+        return v;
+    }
     automap_fetch(n, addr, 1);
     sl = &n->slot[addr >> 13];
     v = sl->rd[addr & 0x1fff];
@@ -1846,6 +1896,7 @@ static void audio_run(zxn *n, uint64_t upto)
 static void ctc_reset(zxn *n)
 {
     int i;
+    n->ev_next = 0;
     for (i = 0; i < 4; i++)
         memset(&n->ctc[i], 0, sizeof n->ctc[i]);
 }
@@ -2146,6 +2197,7 @@ void nx_run_frame(zx *m)
     zxn *n = m->next;
     uint64_t end = n->frame_start + n->frame_ticks;
 
+    n->ev_next = 0;
     m->audio_samples = 0;
     while (n->clk < end) {
         if (n->reset_req) {

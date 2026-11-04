@@ -195,6 +195,7 @@ typedef struct zxn {
     nx_uart uart[2];
     uint8_t uart_sel;
     uint64_t uart_next;       /* next UART event, or ~0 */
+    uint64_t ev_next;         /* events() has nothing to do before this clk; 0 = look */
 
     /* sprites */
     uint8_t spr_attr[NX_SPRITES][5];

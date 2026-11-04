@@ -64,11 +64,29 @@ on every pixel.
 That's 40% less time, with the same pictures and sound in all five
 scenarios. Across all five scenarios, 75 s went down to 54 s.
 
+Round 2, checked the same way (and with `-DOTB_CHECK_MIX`):
+
+- The plain Spectrum screen is drawn a byte (8 pixels) at a time: the
+  pixel and attribute bytes and the ink and paper colours are looked up
+  once per byte, not once per half-pixel.
+- Events: the earliest due event's tick is kept in `ev_next`, so most bus
+  cycles make one compare. Port and nextreg writes, the line interrupt,
+  the copper, the UARTs, resets and each new frame clear it.
+- Opcode fetches at no automap entry point skip the automap call.
+- The video position maths is 32-bit, so there's no 64-bit divide (a
+  library call on the 68040) on each video catch-up.
+- A silent AY (all three volumes 0, no envelope) moves its counters on in
+  bulk instead of a tick at a time. Turbosound has three of them.
+
+| Run | Before round 2 | After round 2 |
+| --- | --- | --- |
+| Five scenarios (x86-64) | 57 s | 34 s |
+| NextZXOS, 1500 frames, no window (x86-64) | 5.01 s (300 fps) | 2.29 s (654 fps) |
+| NextZXOS, 1500 frames, no window (68040 lab) | 31.93 s (47.0 fps, 94%) | to be measured |
+
 Next:
 
-1. A ULA line renderer, a byte (8 pixels) at a time, for the plain
-   Spectrum screen. `ula_pixel` is now the largest cost.
-2. Events: keep the next due event's tick in one variable, so most cycles
-   make one compare.
-3. Measure on the AmiCradle 68040 lab and then on a real 68040, and post the
-   table with each change.
+1. Measure round 2 on the AmiCradle 68040 lab with the window drawing, then
+   on a real 68040.
+2. The Z80N's clock is 64-bit; on a 68040 every add and compare on it is
+   two instructions. A 32-bit clock inside the frame is the next step.
