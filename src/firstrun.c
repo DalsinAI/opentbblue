@@ -28,11 +28,49 @@ static int run(void *arg)
     return 0;
 }
 
+#if defined(__AMIGA__) || defined(__amigaos__)
+#include <proto/dos.h>
+#include <proto/exec.h>
+#include <dos/dos.h>
+
+/* The download's size so far. curl holds the file open for writing, which
+ * on AmigaOS locks it, so stat() fails; its drawer can still be read, and
+ * the entry there carries the size. */
+static long long part_size(void)
+{
+    char dir[1300];
+    const char *name, *p;
+    long long size = 0;
+    struct FileInfoBlock *fib;
+    BPTR lock;
+    if (!otb_prog.part[0])
+        return 0;
+    name = otb_prog.part;
+    for (p = otb_prog.part; *p; p++)
+        if (*p == '/' || *p == ':')
+            name = p + 1;
+    snprintf(dir, sizeof dir, "%.*s", (int)(name - otb_prog.part), otb_prog.part);
+    if (!(lock = Lock((CONST_STRPTR)dir, ACCESS_READ)))
+        return 0;
+    if ((fib = AllocDosObject(DOS_FIB, NULL)) != NULL) {
+        if (Examine(lock, fib))
+            while (ExNext(lock, fib))
+                if (!strcmp((const char *)fib->fib_FileName, name)) {
+                    size = (long long)(unsigned long)fib->fib_Size;
+                    break;
+                }
+        FreeDosObject(DOS_FIB, fib);
+    }
+    UnLock(lock);
+    return size;
+}
+#else
 static long long part_size(void)
 {
     struct stat st;
     return otb_prog.part[0] && stat(otb_prog.part, &st) == 0 ? (long long)st.st_size : 0;
 }
+#endif
 
 static void fill(SDL_Renderer *r, int x, int y, int w, int h, Uint8 cr, Uint8 cg, Uint8 cb)
 {
