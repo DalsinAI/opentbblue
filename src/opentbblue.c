@@ -122,12 +122,14 @@ static const punct puncts[] = {
 /* Shifted digits type their symbols, as on a PC. */
 static const char shifted_digit[10] = { ')', '!', '@', '#', '$', '%', '^', '&', '*', '(' };
 
+static uint8_t pad_joy, key_joy;   /* Kempston bits from a game controller and from the keyboard */
+
 static void rebuild_keys(void)
 {
     uint8_t mat[8][5];
     int shift = held[SDL_SCANCODE_LSHIFT] || held[SDL_SCANCODE_RSHIFT];
-    int sym = held[SDL_SCANCODE_LCTRL] || held[SDL_SCANCODE_RCTRL] ||
-              held[SDL_SCANCODE_LALT] || held[SDL_SCANCODE_RALT];
+    /* Left Ctrl is the joystick's fire button, so SYMBOL SHIFT is the other three */
+    int sym = held[SDL_SCANCODE_RCTRL] || held[SDL_SCANCODE_LALT] || held[SDL_SCANCODE_RALT];
     int symbols = 0, caps, i, r, b;
     memset(mat, 0, sizeof mat);
 
@@ -173,6 +175,13 @@ static void rebuild_keys(void)
     for (r = 0; r < 8; r++)
         for (b = 0; b < 5; b++)
             zx_key(&m, r, b, mat[r][b]);
+
+    /* The arrow keys are also a Kempston joystick (they still send the cursor
+     * keys, which Kempston games ignore), and Left Ctrl is its fire. */
+    key_joy = (uint8_t)((held[SDL_SCANCODE_RIGHT] ? 1 : 0) | (held[SDL_SCANCODE_LEFT] ? 2 : 0) |
+                        (held[SDL_SCANCODE_DOWN] ? 4 : 0) | (held[SDL_SCANCODE_UP] ? 8 : 0) |
+                        (held[SDL_SCANCODE_LCTRL] ? 16 : 0));
+    m.kempston = (uint8_t)(pad_joy | key_joy);
 }
 
 /* ---- joystick ----------------------------------------------------------- */
@@ -191,21 +200,23 @@ static void pad_button(int button, int down)
     case SDL_CONTROLLER_BUTTON_START:      bit = 128; break;
     default: return;
     }
-    m.kempston = (uint8_t)(down ? m.kempston | bit : m.kempston & ~bit);
+    pad_joy = (uint8_t)(down ? pad_joy | bit : pad_joy & ~bit);
+    m.kempston = (uint8_t)(pad_joy | key_joy);
 }
 
 static void pad_axis(int axis, int value)
 {
     const int dead = 12000;
     if (axis == SDL_CONTROLLER_AXIS_LEFTX) {
-        m.kempston &= (uint8_t)~3;
-        if (value > dead) m.kempston |= 1;
-        if (value < -dead) m.kempston |= 2;
+        pad_joy &= (uint8_t)~3;
+        if (value > dead) pad_joy |= 1;
+        if (value < -dead) pad_joy |= 2;
     } else if (axis == SDL_CONTROLLER_AXIS_LEFTY) {
-        m.kempston &= (uint8_t)~12;
-        if (value > dead) m.kempston |= 4;
-        if (value < -dead) m.kempston |= 8;
+        pad_joy &= (uint8_t)~12;
+        if (value > dead) pad_joy |= 4;
+        if (value < -dead) pad_joy |= 8;
     }
+    m.kempston = (uint8_t)(pad_joy | key_joy);
 }
 
 /* ---- options ------------------------------------------------------------ */

@@ -64,9 +64,10 @@ make            # needs a C compiler and SDL2
 ### Keys
 
 The PC keyboard works like a PS/2 keyboard on a Next. Shift is CAPS SHIFT, and
-Ctrl or Alt is SYMBOL SHIFT. Punctuation types the symbol printed on the key.
-Backspace is DELETE, the arrow keys move the cursor, Esc is BREAK, Tab is
-EXTEND MODE and Home is EDIT. Game controllers act as a Kempston joystick,
+Right Ctrl or either Alt is SYMBOL SHIFT. Punctuation types the symbol printed
+on the key. Backspace is DELETE, Esc is BREAK, Tab is EXTEND MODE and Home is
+EDIT. The arrow keys move the cursor and are a Kempston joystick at the same
+time, with Left Ctrl as fire. Game controllers are a Kempston joystick too,
 and the mouse is a Kempston mouse.
 
 F1 is a hard reset (back through the firmware), F4 a soft reset, F9 runs at
