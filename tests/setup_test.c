@@ -4,12 +4,15 @@
  * plus entries that must never land outside the card.
  */
 #include "../src/setup.h"
+#include "../src/fatimg.h"
+#include "../src/storage/blockdev.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <dirent.h>
 
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); fails++; } } while (0)
@@ -25,7 +28,7 @@ static void header(const char *name, const char *prefix, char type, size_t size)
     memset(h, 0, 512);
     snprintf((char *)h, 100, "%s", name);
     snprintf((char *)h + 100, 8, "%07o", 0644);
-    snprintf((char *)h + 124, 12, "%011lo", (unsigned long)size);
+    snprintf((char *)h + 124, 12, "%011lo", (unsigned long)size & 077777777777ul);
     snprintf((char *)h + 136, 12, "%011o", 0);
     h[156] = (unsigned char)type;
     memcpy(h + 257, "ustar", 6);
@@ -68,6 +71,109 @@ static int exists(const char *path)
 {
     struct stat st;
     return stat(path, &st) == 0;
+}
+
+/* Make a disk image of a folder with the emulator's own FAT writer (vfat.c),
+ * the way the Next would see it, for the image reader to read back. */
+static int folder_to_image(const char *folder, const char *imgpath, int fat16)
+{
+    zx_blockdev *bd = fat16 ? zx_bd_open_folder16(folder, 64) : zx_bd_open_folder(folder, 64);
+    uint8_t buf[ZX_BLOCK];
+    uint64_t i;
+    FILE *fp;
+    if (!bd)
+        return -1;
+    fp = fopen(imgpath, "wb");
+    if (!fp)
+        return -1;
+    for (i = 0; i < bd->blocks; i++) {
+        bd->read(bd, i, buf);
+        fwrite(buf, 1, ZX_BLOCK, fp);
+    }
+    fclose(fp);
+    bd->close(bd);
+    return 0;
+}
+
+static void write_text(const char *path, const char *text)
+{
+    FILE *fp = fopen(path, "wb");
+    if (fp) {
+        fputs(text, fp);
+        fclose(fp);
+    }
+}
+
+/* What an extraction wrote, for a failure's report. */
+static void list_tree(const char *dir, int depth)
+{
+    DIR *d = opendir(dir);
+    struct dirent *e;
+    if (!d || depth > 4)
+        return;
+    while ((e = readdir(d)) != NULL) {
+        char p[1200];
+        struct stat st;
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+            continue;
+        snprintf(p, sizeof p, "%s/%s", dir, e->d_name);
+        printf("  %*s[%s]%s\n", depth * 2, "", e->d_name, stat(p, &st) == 0 && S_ISDIR(st.st_mode) ? "/" : "");
+        if (stat(p, &st) == 0 && S_ISDIR(st.st_mode))
+            list_tree(p, depth + 1);
+    }
+    closedir(d);
+}
+
+static void image_round_trip(const char *base, int fat16)
+{
+    char src[600], img[600], out[600], p[1200];
+    static char big[200000];
+    long files = -1;
+    int i;
+    FILE *fp;
+    snprintf(src, sizeof src, "%s-img%d-src", base, fat16);
+    snprintf(img, sizeof img, "%s-img%d.img", base, fat16);
+    snprintf(out, sizeof out, "%s-img%d-out", base, fat16);
+    snprintf(p, sizeof p, "%s/machines/next", src);
+    otb_mkdirs(p);
+    snprintf(p, sizeof p, "%s/TBBLUE.FW", src);
+    write_text(p, "firmware");
+    snprintf(p, sizeof p, "%s/machines/next/A long file name.txt", src);
+    write_text(p, "long");
+    snprintf(p, sizeof p, "%s/lower.bas", src);
+    write_text(p, "lower");
+    for (i = 0; i < (int)sizeof big; i++)
+        big[i] = (char)('a' + i % 26);
+    snprintf(p, sizeof p, "%s/machines/big.bin", src);
+    fp = fopen(p, "wb");
+    fwrite(big, 1, sizeof big, fp);
+    fclose(fp);
+
+    CHECK(folder_to_image(src, img, fat16) == 0);
+    CHECK(otb_img_is_fat(img));
+    CHECK(otb_img_extract(img, out, &files) == 0);
+    CHECK(files == 4);
+    snprintf(p, sizeof p, "%s/TBBLUE.FW", out);
+    CHECK(file_is(p, "firmware"));
+    snprintf(p, sizeof p, "%s/machines/next/A long file name.txt", out);
+    CHECK(file_is(p, "long"));
+    snprintf(p, sizeof p, "%s/lower.bas", out);
+    CHECK(file_is(p, "lower"));
+    snprintf(p, sizeof p, "%s/machines/big.bin", out);
+    fp = fopen(p, "rb");
+    CHECK(fp != NULL);
+    if (fp) {
+        static char back[200001];
+        size_t n = fread(back, 1, sizeof back, fp);
+        fclose(fp);
+        CHECK(n == sizeof big && !memcmp(back, big, sizeof big));
+    }
+    CHECK(otb_card_ready(out));
+    if (fails)
+        list_tree(out, 0);
+    /* not an image */
+    snprintf(p, sizeof p, "%s/lower.bas", src);
+    CHECK(!otb_img_is_fat(p));
 }
 
 int main(void)
@@ -169,6 +275,9 @@ int main(void)
     fclose(fp);
     snprintf(longname, sizeof longname, "%s-bad", dir);
     CHECK(otb_untar(p, longname, &files) != 0);
+
+    image_round_trip(dir, 0);
+    image_round_trip(dir, 1);
 
     printf(fails ? "setup_test: %d failed\n" : "setup_test: all passed\n", fails);
     return fails != 0;

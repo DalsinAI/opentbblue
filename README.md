@@ -18,6 +18,21 @@ joystick, ESP8266 wifi through your computer's network, and a Raspberry Pi
 (NextPi) with its files in a host folder. The machine core comes from
 [ZxNextEmu](https://github.com/DalsinAI/ZxNextEmu).
 
+## Installing
+
+Each release has an installer for every system it runs on:
+
+| System | Get | Then |
+| --- | --- | --- |
+| Windows 10 and 11 | `OpenTBBlue-…-windows-setup.exe` | run it; OpenTBBlue is in the Start menu (no administrator needed) |
+| macOS 11 and later (Apple silicon) | `OpenTBBlue-…-macos-arm64.dmg` | open it and drag OpenTBBlue to Applications. It isn't signed by Apple yet, so the first time, right-click it and choose Open |
+| Debian, Ubuntu, Mint (x86-64) | `OpenTBBlue-…-linux-x86_64.deb` | `sudo apt install ./OpenTBBlue-…-linux-x86_64.deb`; it's in the games menu. Other Linuxes: the `.tar.gz` |
+| AmigaOS 3.2, 68040 or better, RTG | `OpenTBBlue-…-amiga-68040.lha` | unpack it and run Install-OpenTBBlue; it needs GFOpenGPU's SDL2.module and, for the first download, a `curl` (OpenUp has both) |
+
+Then start it. The first start shows a small window while it downloads
+System/Next (about 100 MB) and writes it to the SD card, and then the Next
+boots. Every start after that goes straight to the Next.
+
 ## Running
 
 ```sh
@@ -27,7 +42,8 @@ make            # needs a C compiler and SDL2
 
 | Option | Does |
 | --- | --- |
-| `-c PATH` | SD card: a folder, or an image file (`.img`) |
+| `-c PATH` | SD card: a folder, or an image (`.img`), see below |
+| `--sd1 PATH` | the second SD card slot, the same way |
 | `-p PATH` | the Raspberry Pi's folder |
 | `-z N` | window scale (default 3) |
 | `-F` | full screen |
@@ -58,15 +74,25 @@ full speed, F11 switches full screen, and F10 quits.
 | Windows | `%APPDATA%\OpenTBBlue` |
 | AmigaOS | `PROGDIR:OpenTBBlue-data` |
 
-`OPENTBBLUE_HOME` overrides the location. Inside it:
+`OPENTBBLUE_HOME` overrides the location. Inside it, laid out the way
+AmiCradle keeps its machines:
 
-- `sd/` is the SD card, as ordinary files. Copy `.nex`, `.tap`, `.sna` or
-  anything else in and NextZXOS's Browser can see it. What the Next saves
-  appears there about a second later. `sd/.opentbblue` records which
-  distribution commit is unpacked.
-- `pi/` holds the Raspberry Pi's files.
+| Inside | Is |
+| --- | --- |
+| `opentbblue.ini` | the settings: which card is in each slot, window size, full screen, fetching. Written with the defaults on the first run; options on the command line win over it |
+| `drives/SD0/` | the Next's SD card, as ordinary files. Copy `.nex`, `.tap`, `.sna` or anything else in and NextZXOS's Browser can see it. What the Next saves appears there about a second later. `.opentbblue` records which distribution commit is on it |
+| `drives/<name>/` | a card made from an image (below) |
+| `media/` | the media repository: the official downloads, kept just as they came, each with a `.json` note of where it came from. The System/Next archive is kept here, so `--update` and new cards don't download it again |
+| `pi/` | the Raspberry Pi's files |
 
-The first boot writes `sd/machines/next/config.ini` with `timing=0` (VGA at
+Drives are folders. An image (`.img`) given with `-c`, `--sd1` or in the
+settings is copied into `media/` unchanged, and OpenTBBlue's own FAT reader
+(FAT12, FAT16 and FAT32, long names) writes its files into
+`drives/<image name>/`, which is then the card. That happens once; after
+that the folder is used, with whatever the Next has saved in it. A card
+from an older OpenTBBlue in `sd/` moves to `drives/SD0/` by itself.
+
+The first boot writes `machines/next/config.ini` on the card with `timing=0` (VGA at
 50 Hz), so it skips the monitor test card. Change it in the firmware's editor
 (hold Space while it boots, then press E) like on a real Next.
 
@@ -77,7 +103,7 @@ include it. On AmigaOS, any `curl` in the path works (OpenUp installs one in `C:
 
 OpenTBBlue doesn't include any of the Next's software. The distribution is
 downloaded whole from its own project and is used under the Next License in
-`sd/LICENSE.md`, which allows the whole distribution to run on other
+`LICENSE.md` on the card, which allows the whole distribution to run on other
 hardware. Its parts keep their own licences.
 
 ## Building
@@ -85,7 +111,7 @@ hardware. Its parts keep their own licences.
 | Target | Builds |
 | --- | --- |
 | `make` | `opentbblue` |
-| `make test` | the tar reader and first-boot config tests |
+| `make test` | the tar reader, image reader and first-boot config tests |
 | `make amiga` | `opentbblue.68k` for AmigaOS 3.2 on a 68040, with the OpenGPU SDL2. See [docs/Amiga.md](docs/Amiga.md) |
 
 ## Licence

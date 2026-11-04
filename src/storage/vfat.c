@@ -322,17 +322,18 @@ static int sfn_exact(const char *name, uint8_t sfn[11], uint8_t *nt)
     if (lb < 1 || lb > 8 || le > 3 || (dot && le == 0))
         return 0;
     memset(sfn, ' ', 11);
-    for (i = 0; i < lb + (dot ? 1 + le : 0); i++) {
-        int c = (unsigned char)name[i], part = i > lb;
-        if (i == lb)
-            continue;
+    /* the base name into sfn[0..7], then the extension into sfn[8..10] */
+    for (i = 0; i < lb + le; i++) {
+        int part = i >= lb;
+        size_t at = part ? lb + 1 + (i - lb) : i;
+        int c = (unsigned char)name[at];
         if (c >= 'a' && c <= 'z')
             lower[part] = 1;
         else if (c >= 'A' && c <= 'Z')
             up[part] = 1;
         if (!sfn_char(upper(c)) || c >= 128)
             return 0;
-        sfn[part ? 8 + (i - lb - 1) : i] = (uint8_t)upper(c);
+        sfn[part ? 8 + (i - lb) : i] = (uint8_t)upper(c);
     }
     if ((lower[0] && up[0]) || (lower[1] && up[1]))
         return 2;

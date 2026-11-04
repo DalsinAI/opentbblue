@@ -25,15 +25,15 @@ NET  = src/frontend/net_win32.c
 NET_LIBS = -lws2_32
 endif
 HDRS = $(wildcard src/*.h src/*/*.h)
-OWN  = src/opentbblue.c src/video.c src/setup.c
+OWN  = src/opentbblue.c src/video.c src/setup.c src/fatimg.c src/firstrun.c
 
 all: opentbblue
 
 opentbblue: $(OWN) $(CORE) $(NET) $(HDRS)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(OWN) $(CORE) $(NET) $(SDL_LIBS) $(NET_LIBS) $(LDLIBS) -o $@
 
-tests/setup_test: tests/setup_test.c src/setup.c src/setup.h
-	$(CC) $(CFLAGS) tests/setup_test.c src/setup.c $(LDLIBS) -o $@
+tests/setup_test: tests/setup_test.c src/setup.c src/setup.h src/fatimg.c src/fatimg.h $(CORE)
+	$(CC) $(CFLAGS) tests/setup_test.c src/setup.c src/fatimg.c $(CORE) $(LDLIBS) -o $@
 
 # Frame-for-frame hashes, for comparing two builds (tests/compare.sh).
 tests/frames: tests/frames.c $(CORE) $(HDRS)

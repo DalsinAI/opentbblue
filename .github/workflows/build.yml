@@ -25,8 +25,11 @@ jobs:
         run: |
           export OPENTBBLUE_HOME="$RUNNER_TEMP/otb"
           ./opentbblue -H 1300 -t ' ' -d 1000 -b -o "$RUNNER_TEMP/menu.ppm"
-          test -f "$OPENTBBLUE_HOME/sd/TBBLUE.FW"
-          cat "$OPENTBBLUE_HOME/sd/.opentbblue"
+          test -f "$OPENTBBLUE_HOME/drives/SD0/TBBLUE.FW"
+          cat "$OPENTBBLUE_HOME/drives/SD0/.opentbblue"
+          ls -l "$OPENTBBLUE_HOME/media"
+          cat "$OPENTBBLUE_HOME"/media/*.json
+          grep -q '^sd0=drives/SD0' "$OPENTBBLUE_HOME/opentbblue.ini"
           python3 -I tests/boot_check.py "$RUNNER_TEMP/menu.ppm" 00ffff 2000
       - name: A second run uses the card it already has
         run: |

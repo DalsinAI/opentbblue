@@ -4,11 +4,15 @@
  *   opentbblue [options]
  *
  * With no options it runs the Next from its SD card folder in OpenTBBlue's
- * home (see setup.h). On the first run that folder is empty, so the latest
- * official System/Next distribution is downloaded and unpacked into it, and
- * a video mode is chosen so the Next boots straight into NextZXOS.
+ * home (see setup.h), with the settings in opentbblue.ini there. On the
+ * first run the card is empty, so the latest official System/Next
+ * distribution is downloaded (and kept in media/), its files written to
+ * the card, and a video mode chosen so the Next boots straight into
+ * NextZXOS.
  *
- *   -c PATH      SD card: a folder, or an image file (.img)
+ *   -c PATH      SD card: a folder, or an image (.img), which is kept in
+ *                media/ and its files written into drives/<name>/
+ *   --sd1 PATH   the second SD card slot, the same way
  *   -p PATH      the Raspberry Pi's folder (default: home/pi)
  *   -z N         window scale (default 3)
  *   -F           full screen
@@ -28,6 +32,7 @@
  * F1 hard reset, F4 soft reset, F9 full speed, F11 full screen, F10 quits.
  */
 #include <SDL.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -209,8 +214,10 @@ static void usage(void)
 {
     fprintf(stderr,
         "OpenTBBlue " VERSION ": a ZX Spectrum Next (TBBlue) emulator\n"
-        "usage: opentbblue [-c sd] [-p pi] [-z scale] [-F] [-H frames [-o out.ppm]] [-t text [-d frames]] [-b]\n"
-        "                  [--fetch | --update | --no-fetch] [--home]\n");
+        "usage: opentbblue [-c sd0] [--sd1 sd1] [-p pi] [-z scale] [-F] [-H frames [-o out.ppm]]\n"
+        "                  [-t text [-d frames]] [-b] [--fetch | --update | --no-fetch] [--home]\n"
+        "  sd0, sd1: a folder, or a .img (kept in media/, its files written into drives/<name>/)\n"
+        "  Defaults are in opentbblue.ini in the --home folder.\n");
 }
 
 static void unescape(char *s)
@@ -240,13 +247,48 @@ static int save_ppm(const char *path)
     return fclose(fp);
 }
 
+/* A problem that stops the start: said on stderr, and in a box when there
+ * is a window to show (started from an icon there is no terminal). */
+static int windowed = 1;
+static int fail(const char *fmt, const char *a)
+{
+    char msg[1600];
+    snprintf(msg, sizeof msg, fmt, a);
+    fprintf(stderr, "opentbblue: %s\n", msg);
+    if (windowed)
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "OpenTBBlue", msg, NULL);
+    return 1;
+}
+
+static int is_file(const char *p)
+{
+    struct stat st;
+    return stat(p, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+/* A slot's setting made into a card folder: an image is kept in media/ and
+ * written into drives/<name>/ the first time. */
+static int card_folder(const char *setting, char *out, size_t size)
+{
+    char p[1100];
+    if (is_file(setting))
+        snprintf(p, sizeof p, "%s", setting);
+    else
+        otb_resolve(p, sizeof p, setting);
+    if (is_file(p))
+        return otb_import_image(p, out, size);
+    snprintf(out, size, "%s", p);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
-    char sd_default[1100], pi_default[1100], title[96];
-    const char *sd = NULL, *pidir = NULL, *out = NULL;
+    char sd_buf[1200], sd1_buf[1200], pi_buf[1100], title[96];
+    const char *sd = NULL, *sd1 = NULL, *pidir = NULL, *out = NULL;
     char *text = NULL;
-    int scale = 3, full = 0, headless = -1, delay = 250, bench = 0, fetch = 1, update = 0;
-    int a, running = 1, turbo = 0, image = 0;
+    otb_settings set;
+    int scale = -1, full = -1, headless = -1, delay = 250, bench = 0, fetch = -1, update = 0;
+    int a, running = 1, turbo = 0;
     zx_net *net;
     uint32_t t0, t1;
     uint64_t frames0;
@@ -254,6 +296,7 @@ int main(int argc, char **argv)
     for (a = 1; a < argc; a++) {
         const char *o = argv[a];
         if (!strcmp(o, "-c") && a + 1 < argc) sd = argv[++a];
+        else if (!strcmp(o, "--sd1") && a + 1 < argc) sd1 = argv[++a];
         else if (!strcmp(o, "-p") && a + 1 < argc) pidir = argv[++a];
         else if (!strcmp(o, "-z") && a + 1 < argc) scale = atoi(argv[++a]);
         else if (!strcmp(o, "-F")) full = 1;
@@ -277,50 +320,46 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+
+    /* The settings file gives what the command line leaves out. */
+    otb_migrate();
+    otb_settings_load(&set);
+    if (scale < 0) scale = set.scale;
+    if (full < 0) full = set.fullscreen;
+    if (fetch < 0) fetch = set.fetch;
     if (scale < 1) scale = 1;
+    if (scale > 6) scale = 6;
+    if (!sd) sd = set.sd0;
+    if (!sd1 && set.sd1[0]) sd1 = set.sd1;
+    if (!pidir) pidir = set.pi;
+    otb_resolve(pi_buf, sizeof pi_buf, pidir);
+    pidir = pi_buf;
 
-    if (!sd) {
-        otb_path(sd_default, sizeof sd_default, "sd");
-        sd = sd_default;
-    }
-    if (!pidir) {
-        otb_path(pi_default, sizeof pi_default, "pi");
-        pidir = pi_default;
-    }
-
-    {   /* An image file is used as it is: nothing to fetch or set up. */
-        FILE *fp = fopen(sd, "rb");
-        int is_image = 0;
-        if (fp) {
-            char c;
-            is_image = fread(&c, 1, 1, fp) == 1;   /* a folder reads nothing */
-            fclose(fp);
-        }
-        if (is_image) {
-            fetch = 0;
-            update = 0;
-        }
-        image = is_image;
+    windowed = headless < 0;
+    if (card_folder(sd, sd_buf, sizeof sd_buf))
+        return fail("cannot make a card of %s (see the messages above)", sd);
+    sd = sd_buf;
+    if (sd1) {
+        if (card_folder(sd1, sd1_buf, sizeof sd1_buf))
+            return fail("cannot make a card of %s (see the messages above)", sd1);
+        sd1 = sd1_buf;
+        otb_mkdirs(sd1);
     }
 
     /* The card: fetched on the first run, or when asked. */
     if (update || (fetch && !otb_card_ready(sd))) {
-        if (otb_fetch(sd, update) && !otb_card_ready(sd)) {
-            fprintf(stderr, "opentbblue: no SD card to boot. Put the System/Next distribution in %s,\n"
-                            "or run opentbblue --fetch when the network is up.\n", sd);
-            return 1;
-        }
+        if (otb_mkdirs(sd) || ((windowed ? otb_fetch_shown(sd, update) : otb_fetch(sd, update)) &&
+                               !otb_card_ready(sd)))
+            return fail("System/Next could not be downloaded, so there is no SD card to boot.\n"
+                        "Check the network is up and start OpenTBBlue again, or put the\n"
+                        "System/Next files in %s yourself.", sd);
         if (fetch == 2 || update)
             if (headless < 0 && !text)
                 return 0;
     }
-    if (!image) {
-        if (!otb_card_ready(sd)) {
-            fprintf(stderr, "opentbblue: %s is not a Next SD card (no TBBLUE.FW)\n", sd);
-            return 1;
-        }
-        otb_default_config(sd);
-    }
+    if (!otb_card_ready(sd))
+        return fail("%s is not a Next SD card (it has no TBBLUE.FW)", sd);
+    otb_default_config(sd);
 
     if (zx_create(&m, ZX_NEXT, NULL)) {
         fprintf(stderr, "opentbblue: out of memory\n");
@@ -334,6 +373,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "opentbblue: cannot use %s as the SD card\n", sd);
         return 1;
     }
+    if (sd1 && zx_attach_sd(&m, 1, sd1))
+        fprintf(stderr, "opentbblue: cannot use %s as the second SD card\n", sd1);
     if (text) {
         unescape(text);
         zx_type(&typer, text);
