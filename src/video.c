@@ -45,11 +45,19 @@ static int bar_below(void)
     return bst.pinned && !bst.fullscreen;
 }
 
+/* Frames still to draw whole after the window changed. A full-screen switch
+ * opens a new screen and window (on AmigaOS, SDL2.module), and a frame drawn
+ * before that has settled is lost; a still picture would then never be
+ * drawn again. */
+static int settle;
+
 static void set_logical(void)
 {
     SDL_RenderSetLogicalSize(ren, ZX_SCREEN_W, ZX_SCREEN_H + (bar_below() ? BAR_H : 0));
     force = 1;
     bar_dirty = 1;
+    panel_dirty = 1;
+    settle = 50;
 }
 
 static void size_window(void)
@@ -363,9 +371,22 @@ static void present(void)
     SDL_RenderPresent(ren);
 }
 
+/* While the window settles, the whole picture each frame. */
+static void settling(void)
+{
+    if (settle > 0) {
+        settle--;
+        force = 1;
+        bar_dirty = 1;
+        panel_dirty = panel_on;
+    }
+}
+
 void otb_video_idle(void)
 {
-    int moved = bar_step();
+    int moved;
+    settling();
+    moved = bar_step();
     SDL_Delay(20);
     if (moved || bar_dirty || panel_dirty || force) {
         force = 0;
@@ -376,6 +397,8 @@ void otb_video_idle(void)
 void otb_video_redraw(void)
 {
     force = 1;
+    if (settle < 10)
+        settle = 10;
 }
 
 void otb_video_turbo(int on)
@@ -450,6 +473,7 @@ void otb_video_frame(zx *m, int turbo)
         return;
     }
     skipped = 0;
+    settling();
     {
         int moved = bar_step();
         otb_lines_converted += (unsigned long)convert(m, &y0, &y1);

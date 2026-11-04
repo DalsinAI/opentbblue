@@ -556,7 +556,8 @@ int main(int argc, char **argv)
             }
             case SDL_WINDOWEVENT:
                 if (ev.window.event == SDL_WINDOWEVENT_EXPOSED || ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
-                    ev.window.event == SDL_WINDOWEVENT_RESTORED)
+                    ev.window.event == SDL_WINDOWEVENT_RESTORED || ev.window.event == SDL_WINDOWEVENT_SHOWN ||
+                    ev.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
                     otb_video_redraw();
                 if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
                     otb_video_note_size();
