@@ -12,6 +12,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <dirent.h>
 
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); fails++; } } while (0)
@@ -103,6 +104,26 @@ static void write_text(const char *path, const char *text)
     }
 }
 
+/* What an extraction wrote, for a failure's report. */
+static void list_tree(const char *dir, int depth)
+{
+    DIR *d = opendir(dir);
+    struct dirent *e;
+    if (!d || depth > 4)
+        return;
+    while ((e = readdir(d)) != NULL) {
+        char p[1200];
+        struct stat st;
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+            continue;
+        snprintf(p, sizeof p, "%s/%s", dir, e->d_name);
+        printf("  %*s[%s]%s\n", depth * 2, "", e->d_name, stat(p, &st) == 0 && S_ISDIR(st.st_mode) ? "/" : "");
+        if (stat(p, &st) == 0 && S_ISDIR(st.st_mode))
+            list_tree(p, depth + 1);
+    }
+    closedir(d);
+}
+
 static void image_round_trip(const char *base, int fat16)
 {
     char src[600], img[600], out[600], p[1200];
@@ -148,6 +169,8 @@ static void image_round_trip(const char *base, int fat16)
         CHECK(n == sizeof big && !memcmp(back, big, sizeof big));
     }
     CHECK(otb_card_ready(out));
+    if (fails)
+        list_tree(out, 0);
     /* not an image */
     snprintf(p, sizeof p, "%s/lower.bas", src);
     CHECK(!otb_img_is_fat(p));
