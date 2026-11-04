@@ -49,8 +49,9 @@ the firmware's own menu, as on a real Next.
   are left undrawn (`OTB_MAX_SKIP`), and the sound keeps the pace.
 
 `setup.c` finds the home folder, reads `opentbblue.ini`, downloads
-System/Next on the first run (with `curl`) and unpacks it with its own tar
-reader. `fatimg.c` turns a card image into a folder.
+System/Next on the first run (with `fetch.c`, libcurl built in) and unpacks
+it with its own tar reader. `cards.c` is the card panel: updates, and which
+card is in each slot. `fatimg.c` turns a card image into a folder.
 
 ## CPU
 

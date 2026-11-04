@@ -2279,6 +2279,13 @@ int nx_attach_sd_dev(zx *m, int slot, struct zx_blockdev *bd)
     return 0;
 }
 
+void nx_eject_sd(zx *m, int slot)
+{
+    zxn *n = m->next;
+    nx_sd_close(n->sd[slot & 1]);
+    n->sd[slot & 1] = NULL;
+}
+
 void nx_attach_serial(zx *m, int uart, struct zx_serial *dev)
 {
     zxn *n = m->next;

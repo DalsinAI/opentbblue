@@ -5,10 +5,10 @@
 #   - DalsinAI/gfopensdk (OpenNDK headers) at SDK_COMMIT
 #   - DalsinAI/gfopenrtg's SDL2 link stub (it loads LIBS:GFOpenGPU/SDL2.module
 #     at run time) at RTG_COMMIT
-# and, with build-curl.sh, the curl command and gfopentls.library (HTTPS)
-# the first start downloads System/Next with. Then packs
+# and, with build-curl.sh, libcurl (built into the program, which downloads
+# System/Next itself) and gfopentls.library (HTTPS). Then packs
 # OpenTBBlue-<version>-amiga-68040.lha: the OpenTBBlue drawer with its
-# GlowIcons and curl, Network/ (gfopentls.library and its CA list), and
+# GlowIcons, Network/ (gfopentls.library and its CA list), and
 # Install-OpenTBBlue beside them.
 #
 #   package/amiga/build-ci.sh VERSION OUTDIR
@@ -69,14 +69,15 @@ STOVE=$TC SDK_HEADERS=$NOSDK VASM=true CPU="-m68040" sh rtg/library/modules/sdl2
 mkdir -p "$WORK/sdl/lib"
 cp "$WORK/sdl/libSDL2.a" "$WORK/sdl/lib/"
 
-# 4. OpenTBBlue.
-make -C "$ROOT" amiga AMIGA_CC="$TC/bin/m68k-amigaos-gcc" AMIGA_SDL="$WORK/sdl"
+# 4. libcurl and gfopentls.library (build-curl.sh).
+sh "$HERE/build-curl.sh" "$TC" "$WORK/sdk/OpenNDK" "$WORK/net"
+
+# 5. OpenTBBlue, with libcurl in it.
+make -C "$ROOT" amiga AMIGA_CC="$TC/bin/m68k-amigaos-gcc" AMIGA_SDL="$WORK/sdl" AMIGA_CURL="$WORK/net"
 "$TC/bin/m68k-amigaos-size" "$ROOT/opentbblue.68k"
 fpu=$("$TC/bin/m68k-amigaos-objdump" -d "$ROOT/opentbblue.68k" | grep -cE '\sf(add|sub|mul|div|sqrt|cmp|tst|mov[ex]?)[a-z.]*\s' || true)
 echo "FPU instructions: $fpu (libnix's startup has two fmovel to fpcr)"
 
-# 5. curl and gfopentls.library (build-curl.sh).
-sh "$HERE/build-curl.sh" "$TC" "$WORK/sdk/OpenNDK" "$WORK/net"
 
 # 6. The archive: the drawer, its icons, the Installer script.
 PKG=$WORK/pkg
@@ -92,8 +93,7 @@ cp "$HERE/files/OpenTBBlue-drawer.info" "$PKG/OpenTBBlue.info"
 # the icons the program gives the drawers it makes (make_drawer_icons.py)
 mkdir -p "$PKG/OpenTBBlue/Icons"
 cp "$HERE"/files/Icons/*.info "$PKG/OpenTBBlue/Icons/"
-# curl beside the program, its licences, and Network/ for the Installer
-cp "$WORK/net/curl" "$PKG/OpenTBBlue/curl"
+# the licences of what is built in, and Network/ for the Installer
 mkdir -p "$PKG/OpenTBBlue/Licences" "$PKG/Network/Libs" "$PKG/Network/S/GFOpenTLS"
 cp "$WORK"/net/Licences/* "$PKG/OpenTBBlue/Licences/"
 cp "$WORK/net/gfopentls.library" "$PKG/Network/Libs/"

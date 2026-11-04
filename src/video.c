@@ -27,6 +27,15 @@ static int bar_dirty = 1;          /* bar_pix needs drawing */
 static int bar_shown;              /* rows showing while auto-hidden: 0..BAR_H */
 static int bar_near;               /* the pointer is at the bottom edge or on the bar */
 static Uint32 bar_left;            /* when it left */
+static void present(void);
+
+/* the panel over the picture (the card button's) */
+#define PANEL_MAX_H (PANEL_ROWS * PANEL_ROW_H + 3)
+static SDL_Texture *panel_tex;
+static uint16_t panel_pix[PANEL_W * PANEL_MAX_H];
+static otb_panel panel;
+static int panel_on, panel_dirty, panel_hover;
+static char bar_note[64];
 static int16_t *silence;
 static size_t silence_bytes;
 
@@ -85,9 +94,10 @@ int otb_video_open(zx *m, const char *title, int scale, int fullscreen, int pinn
     th = m->screen_h;
     tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, tw, th);
     bar_tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, BAR_W, BAR_H);
+    panel_tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, PANEL_W, PANEL_MAX_H);
     last = calloc((size_t)tw * th, sizeof *last);
     conv = calloc((size_t)tw * th, sizeof *conv);
-    if (!tex || !bar_tex || !last || !conv) {
+    if (!tex || !bar_tex || !panel_tex || !last || !conv) {
         fprintf(stderr, "opentbblue: cannot make the picture (%s)\n", SDL_GetError());
         return -1;
     }
@@ -161,6 +171,78 @@ void otb_video_bar_state(int paused, int turbo, int muted)
     }
 }
 
+void otb_video_bar_note(int lit, const char *note)
+{
+    if (!note)
+        note = "";
+    if (bst.cards_lit != lit || strcmp(bar_note, note)) {
+        bst.cards_lit = lit;
+        snprintf(bar_note, sizeof bar_note, "%s", note);
+        bst.note = bar_note[0] ? bar_note : NULL;
+        bar_dirty = 1;
+    }
+}
+
+/* The panel's place: centred, its foot on the bar (or where the hidden
+ * bar comes up). */
+static int panel_x(void)
+{
+    return (ZX_SCREEN_W - PANEL_W) / 2;
+}
+
+static int panel_y(void)
+{
+    return ZX_SCREEN_H - (bar_below() ? 0 : BAR_H) - otb_panel_h(&panel);
+}
+
+static int in_panel(int x, int y)
+{
+    return panel_on && x >= panel_x() && x < panel_x() + PANEL_W && y >= panel_y() &&
+           y < panel_y() + otb_panel_h(&panel);
+}
+
+void otb_video_panel(const otb_panel *p)
+{
+    if (!p) {
+        if (panel_on) {
+            panel_on = 0;
+            panel_hover = 0;
+            force = 1;      /* uncover the picture under it */
+        }
+        return;
+    }
+    if (!panel_on || memcmp(&panel, p, sizeof panel)) {
+        if (panel_on && otb_panel_h(p) < otb_panel_h(&panel))
+            force = 1;
+        panel = *p;
+        if (panel.rows > PANEL_ROWS)
+            panel.rows = PANEL_ROWS;
+        panel_on = 1;
+        panel_dirty = 1;
+    }
+}
+
+void otb_video_status(const char *line)
+{
+    otb_panel p;
+    if (!line) {
+        otb_video_panel(NULL);
+        return;
+    }
+    memset(&p, 0, sizeof p);
+    p.rows = 1;
+    snprintf(p.row[0].text, sizeof p.row[0].text, "%s", line);
+    otb_video_panel(&p);
+    SDL_PumpEvents();
+    force = 1;
+    present();
+}
+
+int otb_video_panel_shown(void)
+{
+    return panel_on;
+}
+
 /* Which bar row the logical y is on, or -1 when the bar isn't there. */
 static int bar_row(int y)
 {
@@ -179,9 +261,17 @@ void otb_video_pointer(int x, int y, int inside)
     on = bar_row(y) >= 0;
     if (otb_bar_hover(on ? x : -1))
         bar_dirty = 1;
+    {
+        int h = in_panel(x, y) ? otb_panel_hit(&panel, x - panel_x(), y - panel_y()) : 0;
+        if (h != panel_hover) {
+            panel_hover = h;
+            panel_dirty = 1;
+        }
+    }
     if (!bar_below()) {
-        /* the bottom edge brings it up; it goes a moment after the pointer leaves */
-        int near = inside && (on || y >= ZX_SCREEN_H - 3);
+        /* the bottom edge brings it up; it goes a moment after the pointer
+         * leaves (it stays while the panel is open) */
+        int near = panel_on || (inside && (on || y >= ZX_SCREEN_H - 3));
         if (near)
             bar_near = 1;
         else if (bar_near) {
@@ -193,6 +283,10 @@ void otb_video_pointer(int x, int y, int inside)
 
 int otb_video_click(int x, int y)
 {
+    if (in_panel(x, y)) {
+        int a = otb_panel_hit(&panel, x - panel_x(), y - panel_y());
+        return a > 0 ? BAR_ACT + a : BAR_PANEL;
+    }
     if (bar_row(y) < 0)
         return BAR_NONE;
     return otb_bar_hit(x);
@@ -254,6 +348,18 @@ static void present(void)
         d.y = ZX_SCREEN_H - bar_shown; d.h = bar_shown;
         SDL_RenderCopy(ren, bar_tex, &sr, &d);
     }
+    if (panel_on) {
+        int h = otb_panel_h(&panel);
+        if (panel_dirty) {
+            otb_panel_draw(panel_pix, &panel, panel_hover);
+            sr.x = 0; sr.y = 0; sr.w = PANEL_W; sr.h = h;
+            SDL_UpdateTexture(panel_tex, &sr, panel_pix, PANEL_W * 2);
+            panel_dirty = 0;
+        }
+        sr.x = 0; sr.y = 0; sr.w = PANEL_W; sr.h = h;
+        d.x = panel_x(); d.y = panel_y(); d.w = PANEL_W; d.h = h;
+        SDL_RenderCopy(ren, panel_tex, &sr, &d);
+    }
     SDL_RenderPresent(ren);
 }
 
@@ -261,7 +367,7 @@ void otb_video_idle(void)
 {
     int moved = bar_step();
     SDL_Delay(20);
-    if (moved || bar_dirty || force) {
+    if (moved || bar_dirty || panel_dirty || force) {
         force = 0;
         present();
     }
@@ -347,7 +453,7 @@ void otb_video_frame(zx *m, int turbo)
     {
         int moved = bar_step();
         otb_lines_converted += (unsigned long)convert(m, &y0, &y1);
-        if (y1 < y0 && !moved && !bar_dirty)
+        if (y1 < y0 && !moved && !bar_dirty && !panel_dirty)
             return;     /* nothing changed: the window still shows this picture */
     }
     if (y1 >= y0) {

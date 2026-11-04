@@ -1,12 +1,11 @@
 # OpenTBBlue on AmigaOS (68040)
 
 The Amiga build is the same program with the same SDL2 window. It needs
-AmigaOS 3.2, a 68040 and an RTG screen. The package brings its own `curl`
-(curl 8.22.0 built for the 68040, HTTPS through `gfopentls.library`), which
-the first start downloads System/Next with. Install-OpenTBBlue puts
-`gfopentls.library` in `LIBS:`, its CA list in `S:GFOpenTLS/` and `curl` in
-`C:` where they are missing, then offers to download System/Next straight
-away. Without a network, copy a card made by another OpenTBBlue into
+AmigaOS 3.2, a 68040 and an RTG screen. OpenTBBlue downloads System/Next
+itself: libcurl 8.22.0 (DalsinAI/gfopencurl, built for the 68040) is linked
+into the program, with HTTPS through `gfopentls.library`. Install-OpenTBBlue
+puts `gfopentls.library` in `LIBS:` and its CA list in `S:GFOpenTLS/` where
+they are missing, then offers to download System/Next straight away. Without a network, copy a card made by another OpenTBBlue into
 `OpenTBBlue-data/drives/SD0`. The files go in
 `PROGDIR:OpenTBBlue-data`, beside the program, so put it on your fastest
 disk.
@@ -26,9 +25,9 @@ With an m68k-amigaos-gcc of your own and an SDL2 for it:
 make amiga AMIGA_CC=/path/to/m68k-amigaos-gcc AMIGA_SDL=/path/to/sdl2-prefix
 ```
 
-`package/amiga/build-curl.sh` (run by `build-ci.sh`) builds `curl` and
+`package/amiga/build-curl.sh` (run by `build-ci.sh`) builds libcurl and
 `gfopentls.library` from DalsinAI/gfopencurl and DalsinAI/gfopentls at pinned
-commits; the CA list is Mozilla's, from the build machine's
+commits (`make amiga AMIGA_CURL=` points at its output); the CA list is Mozilla's, from the build machine's
 ca-certificates. `build-amiga.sh` at the top makes the same package
 unpacked, to copy straight onto a test Amiga.
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 # For a build service that sets STOVE= and OUT= (target .): the Amiga
-# package unpacked into OUT, ready to copy onto a test Amiga: OpenTBBlue/ (the program, its
-# GlowIcons, curl), OpenTBBlue.info, Network/ (gfopentls.library and, where
+# package unpacked into OUT, ready to copy onto a test Amiga: OpenTBBlue/ (the program and its
+# GlowIcons), OpenTBBlue.info, Network/ (gfopentls.library and, where
 # this machine's ca-certificates allow, its CA list) and Install-OpenTBBlue.
 # The toolchain, OpenNDK and SDL2 stub are package/amiga/build-ci.sh's own
 # pins, fetched into build-amiga/, so STOVE is not written to. No archive.

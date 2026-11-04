@@ -34,7 +34,7 @@ Each release has an installer for every system it runs on:
 | Windows 10 and 11 | `OpenTBBlue-…-windows-setup.exe` | run it; OpenTBBlue is in the Start menu (no administrator needed) |
 | macOS 11 and later (Apple silicon) | `OpenTBBlue-…-macos-arm64.dmg` | open it and drag OpenTBBlue to Applications. It isn't signed by Apple yet, so the first time, right-click it and choose Open |
 | Debian, Ubuntu, Mint (x86-64) | `OpenTBBlue-…-linux-x86_64.deb` | `sudo apt install ./OpenTBBlue-…-linux-x86_64.deb`; it's in the games menu. Other Linuxes: the `.tar.gz` |
-| AmigaOS 3.2, 68040 or better, RTG | `OpenTBBlue-…-amiga-68040.lha` | unpack it and run Install-OpenTBBlue, which puts the OpenTBBlue drawer in Work: (or where you choose) and copies GFOpenGPU's SDL2.module if it isn't there. It brings its own `curl` and `gfopentls.library` for the first download, and offers to fetch System/Next straight away. Updating keeps your OpenTBBlue-data |
+| AmigaOS 3.2, 68040 or better, RTG | `OpenTBBlue-…-amiga-68040.lha` | unpack it and run Install-OpenTBBlue, which puts the OpenTBBlue drawer in Work: (or where you choose) and copies GFOpenGPU's SDL2.module if it isn't there. It copies `gfopentls.library` (HTTPS) for the downloads OpenTBBlue makes itself, and offers to fetch System/Next straight away. Updating keeps your OpenTBBlue-data |
 
 Then start it. The first start shows a small window while it downloads
 System/Next (about 100 MB) and writes it to the SD card, and then the Next
@@ -77,13 +77,34 @@ full speed, F11 switches full screen, and F10 quits.
 
 Under the picture is a small bar: hard reset,
 soft reset, pause, full speed, sound on or off, a smaller or bigger window
-(1x to 6x), full screen, pin and quit. Pointing at a button names it. The
+(1x to 6x), the SD cards, full screen, pin and quit. Pointing at a button names it. The
 pin button chooses between the bar staying under the picture (pinned, the
 default) and auto-hide, where it slides up over the bottom of the picture
 when the pointer reaches the bottom edge and goes again a second after the
 pointer leaves. In full screen it always auto-hides. The choice is kept in
 `opentbblue.ini` as `bar=pinned` or `bar=auto`. Clicks on the bar don't
 reach the Kempston mouse.
+
+### Cards and System/Next updates
+
+The SD card button opens a panel over the picture, while the Next keeps
+running:
+
+- **System/Next.** Which release is on the card in SD0, and a button to look
+  for a newer one. Each start looks by itself (`check=1`; `check=0` only
+  looks when asked), and the card button lights up when there is one. Then
+  **Download** fetches it (about 100 MB, the MB counting on the bar); a
+  download that stops carries on from where it got to next time. Once it is
+  there, put it on **SD0** (its files written over the card's, everything
+  you have saved on the card left alone; the Next starts again on it) or on
+  **a new card**, `drives/SystemNext-<date>/`, leaving SD0 as it is.
+- **The slots.** What is in SD0 and SD1. SD1 can be taken out.
+- **Cards.** Every card folder in `drives/`, each with **Put in SD0** and
+  **Put in SD1**. A card put in SD0 needs System/Next on it, and the Next
+  starts again on it. The choice is kept in `opentbblue.ini`.
+
+The window opens straight away, and says what it is doing while the cards
+are read.
 
 ## Where the files go
 
@@ -138,14 +159,16 @@ scale=3
 fullscreen=0
 fetch=1
 bar=pinned
+check=1
 ```
 
 The first boot writes `machines/next/config.ini` on the card with `timing=0` (VGA at
 50 Hz), so it skips the monitor test card. Change it in the firmware's editor
 (hold Space while it boots, then press E) like on a real Next.
 
-The download uses your system's `curl`. Windows 10 and later, macOS and Linux
-include it. On AmigaOS the package brings its own, with `gfopentls.library` for HTTPS.
+The downloads are OpenTBBlue's own (libcurl, built in), so there is nothing
+else to install for them. On AmigaOS, HTTPS is `gfopentls.library`, which
+the Installer copies.
 
 ## The distribution
 

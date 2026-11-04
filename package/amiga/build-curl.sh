@@ -1,15 +1,12 @@
 #!/bin/sh
-# The curl command and gfopentls.library for OpenTBBlue's Amiga package:
-# the first run (and --update) fetch System/Next with curl over HTTPS, and
-# AmigaOS 3.2 has no curl of its own. Everything is built from source here,
-# pinned:
+# libcurl (linked into OpenTBBlue) and gfopentls.library for the Amiga
+# package: OpenTBBlue downloads System/Next itself, over HTTPS, and AmigaOS
+# 3.2 has no TLS of its own. Everything is built from source here, pinned:
 #   - DalsinAI/gfopentls at TLS_COMMIT: gfopentls.library (HTTPS, on BearSSL)
 #     and S:GFOpenTLS/ca-bundle.pem (Mozilla's CA list, from this machine's
 #     ca-certificates package)
 #   - DalsinAI/gfopencurl at CURL_COMMIT: libcurl 8.22.0 with GFOpenTLS and
 #     HTTP/2, which it builds from curl's release tarball (SHA-256 checked)
-#   - curl's own command (curl-8.22.0/src), linked against that libcurl with
-#     curl-amiga-net.c (bsdsocket.library for the command)
 # 68040, soft float (gfopentls's specs/m68k-soft-m68040.specs).
 #
 #   package/amiga/build-curl.sh TOOLCHAIN NDK OUTDIR
@@ -18,7 +15,8 @@
 #     NDK        OpenNDK (its Include_H holds the bsdsocket headers)
 #   CA_DIR     (optional) ca-bundle.pem and ca-bundle.LICENSE to use as they
 #              are, or none for no CA list
-# OUTDIR gets curl, gfopentls.library, ca-bundle.pem and the licences.
+# OUTDIR gets include/ and lib/ (libcurl.a, libnghttp2.a, libz.a),
+# gfopentls.library, ca-bundle.pem and the licences.
 set -eu
 TC=$(CDPATH= cd -- "${1:?toolchain}" && pwd)
 NDK=$(CDPATH= cd -- "${2:?OpenNDK}" && pwd)
@@ -55,13 +53,13 @@ for u in "$CURL_URL" "$NGHTTP2_URL" "$ZLIB_URL"; do
 done
 
 # gfopencurl's scripts want a stove: a folder whose prefix/ is the toolchain.
-# Its gcc is curl/gcc-with-libm.sh: soft float needs libnix's libm at the
-# end of each link, which gfopencurl's links (hard float there) leave out.
+# Its gcc is gcc-with-libm.sh: soft float needs libnix's libm at the end of
+# each link, which gfopencurl's links (hard float there) leave out.
 rm -rf tc && mkdir -p tc/bin stove
 for f in "$TC"/*; do [ "$(basename "$f")" = bin ] || ln -s "$f" tc/; done
 for f in "$TC"/bin/*; do ln -s "$f" tc/bin/; done
 rm tc/bin/m68k-amigaos-gcc
-cp "$HERE/curl/gcc-with-libm.sh" tc/bin/m68k-amigaos-gcc
+cp "$HERE/gcc-with-libm.sh" tc/bin/m68k-amigaos-gcc
 chmod +x tc/bin/m68k-amigaos-gcc
 export REAL_GCC="$TC/bin/m68k-amigaos-gcc"
 ln -sfn "$WORK/tc" stove/prefix
@@ -82,22 +80,17 @@ else
     python3 -I gfopentls/tools/make_ca_bundle.py "$WORK/ca" > /dev/null
 fi
 
-# 2. libcurl, with nghttp2 and zlib (gfopencurl's own CI build).
+# 2. libcurl, with nghttp2 and zlib (gfopencurl's own CI build; its test
+#    program is linked too).
 TOOLCHAIN_DIR=$WORK/tc OPENNDK=$NDK OPENTLS_SRC=$WORK/gfopentls TARBALLS=$WORK/tarballs \
     OS32_CPU_FLAGS="$CPU" JOBS=${JOBS:-4} sh gfopencurl/tests/amiga/ci-build.sh
 
-# 3. curl's command, in the same CMake tree. Its terminal-width code asks
-#    for an ioctl() the Amiga has not got; there the width is COLUMNS or 79.
-B=$WORK/gfopencurl/work/curl/build
-SRC=$WORK/gfopencurl/work/curl/curl-8.22.0
-patch -s -d "$SRC" -p1 < "$HERE/curl/0001-terminal-width-on-amigaos.patch"
-"$TC/bin/m68k-amigaos-gcc" -O2 $CPU -idirafter "$NDK/Include_H" -Wall -Wextra \
-    -c "$HERE/curl/curl-amiga-net.c" -o "$WORK/curl-amiga-net.o"
-(cd "$B" && cmake -DBUILD_CURL_EXE=ON -DCMAKE_C_STANDARD_LIBRARIES="$WORK/curl-amiga-net.o" . > /dev/null 2>&1 &&
-    make -j"${JOBS:-4}" curl > "$WORK/curl-tool.log" 2>&1) || { tail -40 "$WORK/curl-tool.log"; exit 1; }
-"$TC/bin/m68k-amigaos-strip" -o "$OUT/curl" "$B/src/curl"
-chmod 755 "$OUT/curl"   # LhA carries it as the Amiga e bit
-"$TC/bin/m68k-amigaos-objdump" -f "$OUT/curl" | grep -q amiga
+# 3. libcurl for OpenTBBlue to link: its headers and the static libraries.
+CI=$WORK/gfopencurl/work/ci
+rm -rf "$OUT/include" "$OUT/lib"
+mkdir -p "$OUT/include" "$OUT/lib"
+cp -R "$CI/out/include/curl" "$OUT/include/"
+cp "$CI/out/lib/libcurl.a" "$CI/out/lib/libnghttp2.a" "$CI/deps/lib/libz.a" "$OUT/lib/"
 
 cp "$WORK/tls/lib/gfopentls.library" "$OUT/"
 [ ! -f "$WORK/ca/ca-bundle.pem" ] || cp "$WORK/ca/ca-bundle.pem" "$OUT/"
@@ -107,4 +100,4 @@ cp "$WORK/gfopencurl/upstream/COPYING.nghttp2" "$OUT/Licences/nghttp2.txt"
 cp "$WORK/gfopentls/LICENSE" "$OUT/Licences/gfopentls.txt"
 cp "$WORK/gfopentls/THIRD_PARTY_NOTICES.md" "$OUT/Licences/gfopentls-third-party.txt"
 [ ! -f "$WORK/ca/ca-bundle.LICENSE" ] || cp "$WORK/ca/ca-bundle.LICENSE" "$OUT/Licences/ca-bundle.txt"
-ls -l "$OUT" "$OUT/Licences"
+ls -l "$OUT" "$OUT/lib" "$OUT/Licences"

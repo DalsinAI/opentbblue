@@ -1,13 +1,13 @@
 /*
  * OpenTBBlue: host folders and the first-run fetch (see setup.h).
  *
- * The download is done by the host's own curl, which every platform
- * OpenTBBlue runs on has: Linux, macOS, Windows 10 and later (curl.exe), and
- * AmigaOS with DalsinAI/gfopencurl. The archive is a plain .tar, so
- * unpacking needs no decompressor; the reader below is our own.
+ * The download is OpenTBBlue's own (fetch.c, libcurl built in), so nothing
+ * else needs installing for it. The archive is a plain .tar, so unpacking
+ * needs no decompressor; the reader below is our own.
  */
 #include "setup.h"
 #include "fatimg.h"
+#include "fetch.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -16,7 +16,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #if defined(__AMIGA__) || defined(__amigaos__)
-#include <dos/dostags.h>
 #include <proto/dos.h>
 #endif
 
@@ -92,9 +91,9 @@ static const char *home_var(void)
 }
 
 #if defined(__AMIGA__) || defined(__amigaos__)
-/* "PROGDIR:x" as a full path (Work:OpenTBBlue/x). PROGDIR: means this
- * program's drawer only to this program: the Shell that system() starts
- * for curl has a PROGDIR: of its own, so paths handed to it must be full. */
+/* "PROGDIR:x" as a full path (Work:OpenTBBlue/x): PROGDIR: means this
+ * program's drawer only to this program, and the settings and card paths
+ * are kept as full ones. */
 static void amiga_full(char *out, size_t size, const char *path)
 {
     char buf[1024];
@@ -363,84 +362,56 @@ int otb_untar(const char *tar, const char *dir, long *files)
 
 /* ---- fetch -------------------------------------------------------------- */
 
-static int run_curl(const char *url, const char *out, int quiet)
+void otb_release_url(const otb_release *r, char *out, size_t size)
 {
-    char cmd[3000];
-#if defined(__AMIGA__) || defined(__amigaos__)
-    /* The package's own curl, beside the program (Install-OpenTBBlue also
-     * puts it in C: when C: has none), by its full path. Started from
-     * Workbench the program has no Shell input or output, which system()
-     * needs, so curl runs with NIL: for both and the stack HTTPS needs. */
-    char curl[1100] = "curl", out_full[1100];
-    struct stat st;
-    BPTR in, nil;
-    LONG rc;
-    if (stat("PROGDIR:curl", &st) == 0)
-        amiga_full(curl, sizeof curl, "PROGDIR:curl");
-    amiga_full(out_full, sizeof out_full, out);
-    snprintf(cmd, sizeof cmd, "\"%s\" -fL --retry 3 -sS -o \"%s\" \"%s\"", curl, out_full, url);
-    (void)quiet;
-    in = Open((CONST_STRPTR)"NIL:", MODE_OLDFILE);
-    nil = Open((CONST_STRPTR)"NIL:", MODE_NEWFILE);
-    if (!in || !nil) {
-        if (in) Close(in);
-        if (nil) Close(nil);
-        return -1;
-    }
-    rc = SystemTags((CONST_STRPTR)cmd, SYS_Input, in, SYS_Output, nil, NP_StackSize, 65536, TAG_DONE);
-    if (rc == -1) {     /* not started: the handles are still ours */
-        Close(in);
-        Close(nil);
-    }
-    return rc == 0 ? 0 : -1;
-#else
-    snprintf(cmd, sizeof cmd, "curl -fL --retry 3 %s -o \"%s\" \"%s\"",
-             quiet ? "-sS" : "-#", out, url);
-    return system(cmd) == 0 ? 0 : -1;
-#endif
+    snprintf(out, size, TBBLUE_TAR, r->id, r->id);
 }
 
-/* The newest commit on the distribution's master: its id and date. */
-static int latest(char id[41], char date[32])
+/* The commit id and date out of the API's answer. */
+int otb_release_parse(const char *json, otb_release *r)
 {
-    char tmp[1100], *p;
-    FILE *fp;
-    static char json[8192];
-    size_t n;
-    otb_path(tmp, sizeof tmp, "latest.json");
-    if (run_curl(TBBLUE_API, tmp, 1))
-        return -1;
-    fp = fopen(tmp, "rb");
-    if (!fp)
-        return -1;
-    n = fread(json, 1, sizeof json - 1, fp);
-    fclose(fp);
-    remove(tmp);
-    json[n] = 0;
-    p = strstr(json, "\"id\":\"");
+    const char *p = strstr(json, "\"id\":\"");
+    memset(r, 0, sizeof *r);
     if (!p || strspn(p + 6, "0123456789abcdef") < 40)
         return -1;
-    memcpy(id, p + 6, 40);
-    id[40] = 0;
-    date[0] = 0;
+    memcpy(r->id, p + 6, 40);
+    r->id[40] = 0;
     if ((p = strstr(json, "\"committed_date\":\"")) != NULL)
-        sscanf(p + 18, "%31[^\"]", date);
+        sscanf(p + 18, "%31[^\"]", r->date);
     return 0;
 }
 
-static int read_mark(const char *sd, char id[41])
+const char *otb_release_api(void)
 {
-    char p[1100];
+    return TBBLUE_API;
+}
+
+/* The newest commit on the distribution's master: its id and date. */
+int otb_latest(otb_release *r)
+{
+    static char json[8192];
+    if (otb_http_text(TBBLUE_API, json, sizeof json))
+        return -1;
+    return otb_release_parse(json, r);
+}
+
+int otb_card_release(const char *sd, otb_release *r)
+{
+    char p[1100], line[200];
     FILE *fp;
-    id[0] = 0;
+    memset(r, 0, sizeof *r);
     join(p, sizeof p, sd, MARK_FILE);
     fp = fopen(p, "r");
     if (!fp)
         return -1;
-    if (fscanf(fp, "commit=%40s", id) != 1)
-        id[0] = 0;
+    while (fgets(line, sizeof line, fp)) {
+        if (!strncmp(line, "commit=", 7))
+            sscanf(line + 7, "%40s", r->id);
+        else if (!strncmp(line, "date=", 5))
+            sscanf(line + 5, "%31s", r->date);
+    }
     fclose(fp);
-    return id[0] ? 0 : -1;
+    return r->id[0] ? 0 : -1;
 }
 
 /* A note beside each file in the media repository: where it came from. */
@@ -480,10 +451,62 @@ static void write_mark(const char *sd, const char *id, const char *date, const c
     }
 }
 
+static void tar_name(const otb_release *r, char *name, size_t size)
+{
+    snprintf(name, size, "tbblue-%s.tar", r->id);
+}
+
+int otb_release_tar(const otb_release *r, char *tar, size_t size)
+{
+    char media[1100], name[80];
+    otb_path(media, sizeof media, OTB_MEDIA);
+    if (otb_mkdirs(media))
+        return -1;
+    tar_name(r, name, sizeof name);
+    join(tar, size, media, name);
+    return file_size(tar) >= 1000000 ? 1 : 0;
+}
+
+int otb_release_downloaded(const otb_release *r, const char *part)
+{
+    char tar[1200], url[300];
+    size_t n = strlen(part);
+    if (n < 5 || strcmp(part + n - 5, ".part"))
+        return -1;
+    snprintf(tar, sizeof tar, "%.*s", (int)(n - 5), part);
+    remove(tar);
+    if (rename(part, tar))
+        return -1;
+    otb_release_url(r, url, sizeof url);
+    write_sidecar(tar, url, r->id, r->date, file_size(tar));
+    return 0;
+}
+
+int otb_release_install(const otb_release *r, const char *sd)
+{
+    char tar[1200], name[80];
+    long files = 0;
+    if (otb_release_tar(r, tar, sizeof tar) != 1 || otb_mkdirs(sd))
+        return -1;
+    otb_prog.phase = 3;
+    otb_prog.files = 0;
+    printf("OpenTBBlue: writing System/Next %.10s into %s\n", r->id, sd);
+    if (otb_untar(tar, sd, &files) || files < 100) {
+        fprintf(stderr, "opentbblue: unpacking failed (%ld files)\n", files);
+        return -1;
+    }
+    otb_default_config(sd);
+    tar_name(r, name, sizeof name);
+    write_mark(sd, r->id, r->date, name);
+    printf("OpenTBBlue: %ld files ready. The distribution's licence is in %s/LICENSE.md\n", files, sd);
+    return 0;
+}
+
 int otb_fetch(const char *sd, int update)
 {
-    char id[41], date[32], have[41], url[300], tar[1200], part[1300], media[1100], name[80];
-    long files = 0;
+    otb_release r, have;
+    char url[300], tar[1200], part[1300];
+    int got;
 
     if (otb_card_ready(sd) && !update) {
         printf("OpenTBBlue: the Next's SD card is already at %s\n", sd);
@@ -492,46 +515,32 @@ int otb_fetch(const char *sd, int update)
     otb_prog.phase = 1;
     otb_prog.files = 0;
     printf("OpenTBBlue: looking up the latest System/Next distribution...\n");
-    if (latest(id, date)) {
-        fprintf(stderr, "opentbblue: cannot reach gitlab.com/thesmog358/tbblue (is curl installed and the network up?)\n");
+    if (otb_latest(&r)) {
+        fprintf(stderr, "opentbblue: cannot reach gitlab.com/thesmog358/tbblue (is the network up?)\n");
         return -1;
     }
-    if (update && read_mark(sd, have) == 0 && !strcmp(have, id)) {
-        printf("OpenTBBlue: the SD card already has the latest distribution (%.10s, %s)\n", id, date);
+    if (update && otb_card_release(sd, &have) == 0 && !strcmp(have.id, r.id)) {
+        printf("OpenTBBlue: the SD card already has the latest distribution (%.10s, %s)\n", r.id, r.date);
         return 0;
     }
     /* The official archive is kept, unchanged, in the media repository;
-     * one already there is not downloaded again. */
-    otb_path(media, sizeof media, OTB_MEDIA);
-    if (otb_mkdirs(media))
+     * one already there is not downloaded again, and a part of one is
+     * carried on from where it stopped. */
+    if ((got = otb_release_tar(&r, tar, sizeof tar)) < 0)
         return -1;
-    snprintf(name, sizeof name, "tbblue-%s.tar", id);
-    join(tar, sizeof tar, media, name);
-    if (file_size(tar) < 1000000) {
-        snprintf(url, sizeof url, TBBLUE_TAR, id, id);
+    if (!got) {
+        otb_release_url(&r, url, sizeof url);
         snprintf(part, sizeof part, "%s.part", tar);
-        snprintf(otb_prog.part, sizeof otb_prog.part, "%s", part);
         otb_prog.phase = 2;
-        printf("OpenTBBlue: downloading System/Next %.10s (%s), about 100 MB...\n", id, date);
-        if (run_curl(url, part, 0) || rename(part, tar)) {
-            fprintf(stderr, "opentbblue: the download failed\n");
-            remove(part);
+        printf("OpenTBBlue: downloading System/Next %.10s (%s), about 100 MB...\n", r.id, r.date);
+        if (otb_dl_wait(url, part, 1) || otb_release_downloaded(&r, part)) {
+            fprintf(stderr, "opentbblue: the download failed (what came is kept, and carried on next time)\n");
             return -1;
         }
-        write_sidecar(tar, url, id, date, file_size(tar));
     } else {
-        printf("OpenTBBlue: using System/Next %.10s from the media repository\n", id);
+        printf("OpenTBBlue: using System/Next %.10s from the media repository\n", r.id);
     }
-    otb_prog.phase = 3;
-    printf("OpenTBBlue: writing its files into %s\n", sd);
-    if (otb_untar(tar, sd, &files) || files < 100) {
-        fprintf(stderr, "opentbblue: unpacking failed (%ld files)\n", files);
-        return -1;
-    }
-    otb_default_config(sd);
-    write_mark(sd, id, date, name);
-    printf("OpenTBBlue: %ld files ready. The distribution's licence is in %s/LICENSE.md\n", files, sd);
-    return 0;
+    return otb_release_install(&r, sd);
 }
 
 /* ---- images ------------------------------------------------------------- */
@@ -650,6 +659,7 @@ void otb_settings_defaults(otb_settings *s)
     s->bar_pinned = 1;
     s->scale = 3;
     s->fetch = 1;
+    s->check = 1;
 }
 
 static void trim(char *t)
@@ -693,7 +703,10 @@ int otb_settings_load(otb_settings *s)
                 "fetch=1\n"
                 "# bar: the control bar under the picture, pinned or auto (it comes up\n"
                 "#   at the bottom edge); the pin button on the bar sets this\n"
-                "bar=pinned\n",
+                "bar=pinned\n"
+                "# check: 1 to look for a newer System/Next at each start (the card\n"
+                "#   button on the bar then lights up), 0 only when asked\n"
+                "check=1\n",
                 s->sd0, s->sd1, s->card_mb, s->pi, s->scale);
         return fclose(fp);
     }
@@ -712,6 +725,7 @@ int otb_settings_load(otb_settings *s)
         else if (!strcmp(line, "scale")) s->scale = atoi(eq + 1);
         else if (!strcmp(line, "fullscreen")) s->fullscreen = atoi(eq + 1) != 0;
         else if (!strcmp(line, "fetch")) s->fetch = atoi(eq + 1) != 0;
+        else if (!strcmp(line, "check")) s->check = atoi(eq + 1) != 0;
     }
     fclose(fp);
     return 0;

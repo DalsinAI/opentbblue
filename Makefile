@@ -7,6 +7,9 @@ CFLAGS  += -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Isr
 LDLIBS  ?=
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null || sdl2-config --cflags)
 SDL_LIBS   := $(shell pkg-config --libs sdl2 2>/dev/null || sdl2-config --libs)
+# libcurl, for the downloads (src/fetch.c): the system's
+CURL_CFLAGS := $(shell pkg-config --cflags libcurl 2>/dev/null)
+CURL_LIBS   := $(shell pkg-config --libs libcurl 2>/dev/null || echo -lcurl)
 PREFIX  ?= /usr/local
 
 # The Next, from ZxNextEmu's core (DalsinAI/ZxNextEmu): the Z80N, the Next
@@ -25,15 +28,15 @@ NET  = src/frontend/net_win32.c
 NET_LIBS = -lws2_32
 endif
 HDRS = $(wildcard src/*.h src/*/*.h)
-OWN  = src/opentbblue.c src/video.c src/bar.c src/setup.c src/fatimg.c src/firstrun.c
+OWN  = src/opentbblue.c src/video.c src/bar.c src/setup.c src/fatimg.c src/firstrun.c src/fetch.c src/cards.c
 
 all: opentbblue
 
 opentbblue: $(OWN) $(CORE) $(NET) $(HDRS)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(OWN) $(CORE) $(NET) $(SDL_LIBS) $(NET_LIBS) $(LDLIBS) -o $@
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(CURL_CFLAGS) $(OWN) $(CORE) $(NET) $(SDL_LIBS) $(CURL_LIBS) $(NET_LIBS) $(LDLIBS) -o $@
 
-tests/setup_test: tests/setup_test.c src/setup.c src/setup.h src/fatimg.c src/fatimg.h $(CORE)
-	$(CC) $(CFLAGS) tests/setup_test.c src/setup.c src/fatimg.c $(CORE) $(LDLIBS) -o $@
+tests/setup_test: tests/setup_test.c src/setup.c src/setup.h src/fatimg.c src/fatimg.h src/fetch.c src/fetch.h $(CORE) $(NET)
+	$(CC) $(CFLAGS) $(CURL_CFLAGS) tests/setup_test.c src/setup.c src/fatimg.c src/fetch.c $(CORE) $(CURL_LIBS) $(NET_LIBS) $(LDLIBS) -o $@
 
 # Frame-for-frame hashes, for comparing two builds (tests/compare.sh).
 tests/frames: tests/frames.c $(CORE) $(HDRS)
@@ -51,12 +54,18 @@ test: tests/setup_test
 AMIGA_CC      ?= m68k-amigaos-gcc
 AMIGA_CFLAGS  ?= -O3 -m68040 -mtune=68040 -fomit-frame-pointer -fno-strict-aliasing -fno-tree-loop-distribute-patterns -DNDEBUG
 AMIGA_SDL     ?= $(dir $(shell which $(AMIGA_CC) 2>/dev/null))../m68k-amigaos
+# libcurl is gfopencurl's (HTTPS through gfopentls.library), built by
+# package/amiga/build-curl.sh into AMIGA_CURL (include/ and lib/).
+AMIGA_CURL    ?= build-amiga/net
 AMIGA_LDLIBS  ?= -noixemul -lm
 amiga: opentbblue.68k
 
 opentbblue.68k: $(OWN) $(CORE) src/frontend/net_amiga.c $(HDRS)
 	$(AMIGA_CC) -noixemul $(AMIGA_CFLAGS) -std=gnu99 -Isrc -include src/compat.h -I$(AMIGA_SDL)/include/SDL2 \
-	    $(OWN) $(CORE) src/frontend/net_amiga.c -L$(AMIGA_SDL)/lib -lSDL2 $(AMIGA_LDLIBS) -o $@
+	    -I$(AMIGA_CURL)/include -DCURL_STATICLIB \
+	    $(OWN) $(CORE) src/frontend/net_amiga.c -L$(AMIGA_SDL)/lib -lSDL2 \
+	    $(AMIGA_CURL)/lib/libcurl.a $(AMIGA_CURL)/lib/libnghttp2.a $(AMIGA_CURL)/lib/libz.a \
+	    -latomic -lpthread $(AMIGA_LDLIBS) -o $@
 
 install: opentbblue
 	install -D -m 755 opentbblue $(DESTDIR)$(PREFIX)/bin/opentbblue
