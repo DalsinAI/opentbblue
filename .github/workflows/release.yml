@@ -128,25 +128,33 @@ jobs:
 
   macos:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+      SDL_VER: 2.32.10
     steps:
       - uses: actions/checkout@v4
-      - run: brew install sdl2
-      - run: make CC=clang && make test CC=clang
+      - name: SDL2, built into the program (no libraries to carry or find)
+        run: |
+          curl -fsSL -o sdl.tar.gz "https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VER/SDL2-$SDL_VER.tar.gz"
+          tar xzf sdl.tar.gz
+          cmake -S SDL2-$SDL_VER -B sdl-build -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=OFF -DSDL_STATIC=ON \
+                -DSDL_TEST=OFF -DCMAKE_INSTALL_PREFIX="$PWD/sdl" -DCMAKE_OSX_ARCHITECTURES=arm64
+          cmake --build sdl-build -j4 && cmake --install sdl-build
+      - name: Build and test
+        run: |
+          S="$PWD/sdl/bin/sdl2-config"
+          make CC=clang SDL_CFLAGS="$($S --cflags)" SDL_LIBS="$($S --static-libs)"
+          make test CC=clang
+          otool -L opentbblue
+          ./opentbblue --version
       - name: OpenTBBlue.app in a .dmg
         run: |
           v=${VERSION#v}
           app=pkg/OpenTBBlue.app
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" dist
           cp opentbblue "$app/Contents/MacOS/"
-          lib=$(otool -L opentbblue | awk '/libSDL2/ {print $1}')
-          cp "$lib" "$app/Contents/MacOS/"
-          install_name_tool -change "$lib" "@executable_path/$(basename "$lib")" "$app/Contents/MacOS/opentbblue"
-          # Homebrew's SDL2 is sdl2-compat, which loads SDL3 when it starts
-          # (and waits on a message box without it): SDL3 goes in too.
-          sdl3=$(brew --prefix sdl3)/lib/libSDL3.0.dylib
-          if [ -f "$sdl3" ]; then cp "$sdl3" "$app/Contents/MacOS/"; fi
-          ls -l "$app/Contents/MacOS"
+          strip "$app/Contents/MacOS/opentbblue"
           sed "s/@VERSION@/$v/g" package/macos/Info.plist > "$app/Contents/Info.plist"
           # the icon, at every size macOS asks for
           set=pkg/OpenTBBlue.iconset
@@ -158,7 +166,6 @@ jobs:
           iconutil -c icns "$set" -o "$app/Contents/Resources/OpenTBBlue.icns"
           cp README.md LICENSE "$app/Contents/Resources/"
           codesign --force --deep -s - "$app"
-          otool -L "$app/Contents/MacOS/opentbblue"
           # the disk image: the app, and a link to Applications to drag it to
           root=pkg/dmg
           mkdir -p "$root"
@@ -169,23 +176,7 @@ jobs:
       - name: The app starts from the disk image
         run: |
           hdiutil attach -nobrowse -noautoopen dist/*.dmg -mountpoint /tmp/otb-dmg
-          # with no Homebrew SDL on the path, as on a user's Mac
-          brew unlink sdl3 sdl2-compat >/dev/null 2>&1 || true
-          run() {   # run CMD..., and if it has not finished in 20 s, show where it waits
-            "$@" > /tmp/otb-out.txt 2>&1 & pid=$!
-            for i in $(seq 20); do kill -0 $pid 2>/dev/null || break; sleep 1; done
-            if kill -0 $pid 2>/dev/null; then
-              echo "still running after 20 s: $*"
-              grep -i -E 'sdl|opentbblue' /tmp/otb-out.txt | head -20
-              env -u DYLD_PRINT_LIBRARIES sample $pid 2 2>&1 | grep -v '^ *$' | sed -n '1,120p'
-              kill -9 $pid; return 1
-            fi
-            wait $pid && rc=0 || rc=$?
-            grep -v '^dyld' /tmp/otb-out.txt; grep -i -E 'dyld.*(sdl|opentbblue)' /tmp/otb-out.txt | head
-            return $rc
-          }
-          run ./opentbblue --version || echo "the built program did not start either"
-          DYLD_PRINT_LIBRARIES=1 run /tmp/otb-dmg/OpenTBBlue.app/Contents/MacOS/opentbblue --version
+          perl -e 'alarm 30; exec @ARGV' /tmp/otb-dmg/OpenTBBlue.app/Contents/MacOS/opentbblue --version
           hdiutil detach /tmp/otb-dmg
       - uses: actions/upload-artifact@v4
         with: { name: macos, path: dist/* }
