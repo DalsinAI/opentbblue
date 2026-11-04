@@ -1,0 +1,34 @@
+name: Build OpenTBBlue
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsdl2-dev
+      - name: Build
+        run: make
+      - name: The tar reader and first-boot config
+        run: make test
+      - name: First run fetches System/Next, and the Next boots to the NextZXOS menu
+        run: |
+          export OPENTBBLUE_HOME="$RUNNER_TEMP/otb"
+          ./opentbblue -H 1300 -t ' ' -d 1000 -b -o "$RUNNER_TEMP/menu.ppm"
+          test -f "$OPENTBBLUE_HOME/sd/TBBLUE.FW"
+          cat "$OPENTBBLUE_HOME/sd/.opentbblue"
+          python3 -I tests/boot_check.py "$RUNNER_TEMP/menu.ppm" 00ffff 2000
+      - name: A second run uses the card it already has
+        run: |
+          export OPENTBBLUE_HOME="$RUNNER_TEMP/otb"
+          ./opentbblue -H 10 --no-fetch
