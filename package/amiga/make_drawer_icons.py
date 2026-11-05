@@ -15,7 +15,7 @@ for the OpenTBBlue drawer itself. Writes package/amiga/files/Icons/:
 
 The program copies them in beside each drawer that has no icon yet
 (src/setup.c, otb_drawer_icons). The badges are package/icons' art
-(make_art.py). MIT, Copyright (c) 2026 AmigaChrome Team."""
+(make_art.py). MIT, Copyright (c) 2026 AmiCradle Team."""
 import sys
 from pathlib import Path
 

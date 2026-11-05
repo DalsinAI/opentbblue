@@ -234,4 +234,4 @@ uses the Team's OpenAmigaGCC, OpenNDK and the GFOpenGPU SDL2, all pinned in
 GPL-3.0-or-later (see `LICENSE`). The Next's boot ROM in `src/next/bootrom.c`
 comes from the GPL-3 SpectrumNext FPGA sources.
 
-Designed, tested and delivered by The AmigaChrome Team.
+Designed, tested and delivered by The AmiCradle Team.

@@ -59,7 +59,7 @@ jobs:
           Architecture: amd64
           Depends: libsdl2-2.0-0, libcurl4 | libcurl4t64, libc6
           Installed-Size: $(du -sk "$d/usr" | cut -f1)
-          Maintainer: AmigaChrome Team <121399723+SacredTrees@users.noreply.github.com>
+          Maintainer: AmiCradle Team <121399723+SacredTrees@users.noreply.github.com>
           Homepage: https://github.com/DalsinAI/opentbblue
           Description: ZX Spectrum Next (TBBlue) emulator in one window
            The first start downloads the latest official System/Next

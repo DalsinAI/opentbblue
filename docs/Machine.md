@@ -250,4 +250,4 @@ start with, and NextZXOS sees it as a second drive.
   floating point, a smaller video conversion, and skipped frames. See
   [Amiga.md](Amiga.md).
 
-Designed, tested and delivered by The AmigaChrome Team.
+Designed, tested and delivered by The AmiCradle Team.
