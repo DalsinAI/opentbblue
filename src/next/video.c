@@ -457,11 +457,14 @@ static uint16_t add_rgb(uint16_t a, uint16_t b, int minus5)
     return (uint16_t)(r << 6 | g << 3 | bl);
 }
 
-static uint16_t mix(const zxn *n, int wx, int wy, int s, int spr_pix)
+/* The mixer with the ULA pixel already worked out (ula_rgb, ula_mix_t and
+ * border as ula_pixel() gives them). */
+static inline uint16_t mix_ula(const zxn *n, int wx, int wy, int s, int spr_pix,
+                               uint16_t ula_rgb, int ula_mix_t, int border)
 {
-    int ula_mix_t, border, ula_en = !(n->nr_68 & 0x80);
+    int ula_en = !(n->nr_68 & 0x80);
     int tm_en_reg = n->nr_6b >> 7, tm_en = 0, tm_below = 0, tm_text = 0;
-    uint16_t ula_rgb, tm_rgb = 0, l2_rgb = 0, spr_rgb = 0;
+    uint16_t tm_rgb = 0, l2_rgb = 0, spr_rgb = 0;
     int ula_t, tm_t, l2_t, spr_t, l2_prio = 0;
     int ulatm_t, ula_final_t;
     uint16_t ula_final_rgb, ulatm_rgb;
@@ -470,7 +473,6 @@ static uint16_t mix(const zxn *n, int wx, int wy, int s, int spr_pix)
     uint16_t fb = rgb8to9(n->fallback);
     int blend = (n->nr_68 >> 5) & 3;
 
-    ula_rgb = ula_pixel(n, wx, wy, s, &ula_mix_t, &border);
     ula_t = ula_mix_t || !ula_en;
     if (ula_mix_t)
         ula_rgb = 0;
@@ -590,6 +592,13 @@ static uint16_t mix(const zxn *n, int wx, int wy, int s, int spr_pix)
     }
 }
 
+static uint16_t mix(const zxn *n, int wx, int wy, int s, int spr_pix)
+{
+    int mt, border;
+    uint16_t rgb = ula_pixel(n, wx, wy, s, &mt, &border);
+    return mix_ula(n, wx, wy, s, spr_pix, rgb, mt, border);
+}
+
 /* ---- the lazy renderer ---------------------------------------------------- */
 
 /* With the tilemap and Layer 2 off, no sprite pixel in the span and one of
@@ -672,6 +681,194 @@ static int ula_plain_span(const zxn *n, uint16_t *row, int wy, int xa, int xb, u
     return 1;
 }
 
+/* What ula_pixel() gives for subpixel 0 of every pixel in [xa, xb), for the
+ * plain ULA screen (the modes ula_plain_span() takes), a byte at a time.
+ * rgb, mt and bd are indexed by x. Returns 0 for any other mode. */
+static int ula_plain_layer(const zxn *n, int wy, int xa, int xb, uint16_t *rgb, uint8_t *mt, uint8_t *bd)
+{
+    int shadow = (n->port_7ffd >> 3) & 1;
+    int mode = shadow ? 0 : (n->port_ff & 7);
+    int vc = wy - 32, x, y, last_col = -1;
+    const uint8_t *clip = n->clip[2];
+    const uint16_t *pal = n->pal_ulatm + (((n->nr_43 >> 1) & 1) << 8);
+    uint16_t ink = 0, paper = 0, border_rgb;
+    uint8_t bits = 0, ink_t = 0, paper_t = 0, border_t;
+    uint32_t line_pa, line_aa;
+    int row_clipped;
+
+    if ((n->nr_15 & 0x80) || (n->nr_43 & 1) || n->ulap_en || (mode & 6) || (n->nr_68 & 4))
+        return 0;
+    border_rgb = pal[16 | (n->port_fe & 7)] & 0x1ff;
+    border_t = (border_rgb >> 1) == n->transparent;
+    if (vc < 0 || vc > 191) {
+        for (x = xa; x < xb; x++) {
+            rgb[x] = border_rgb;
+            mt[x] = border_t;
+            bd[x] = 1;
+        }
+        return 1;
+    }
+    y = vc + n->ula_scroll_y;
+    if (y >= 192)
+        y -= 192;
+    line_pa = (uint32_t)(((mode & 1) ? 0x2000 : 0) | (y & 0xc0) << 5 | (y & 7) << 8 | (y & 0x38) << 2);
+    line_aa = (uint32_t)(((mode & 1) ? 0x2000 : 0) | 0x1800 | (y >> 3) << 5);
+    row_clipped = !(vc >= clip[2] && vc <= clip[3]);
+
+    for (x = xa; x < xb; x++) {
+        int phc = x - 32, px, col;
+        if (phc < 0 || phc > 255) {
+            rgb[x] = border_rgb;
+            mt[x] = border_t;
+            bd[x] = 1;
+            continue;
+        }
+        px = (phc + n->ula_scroll_x) & 255;
+        col = px >> 3;
+        if (col != last_col) {
+            uint8_t attr = vram(n, shadow, line_aa | col);
+            int bright = (attr >> 6) & 1;
+            bits = vram(n, shadow, line_pa | col);
+            if ((attr & 0x80) && (n->flash & 16))
+                bits = (uint8_t)~bits;
+            ink = pal[bright << 3 | (attr & 7)] & 0x1ff;
+            paper = pal[16 | bright << 3 | ((attr >> 3) & 7)] & 0x1ff;
+            ink_t = (ink >> 1) == n->transparent;
+            paper_t = (paper >> 1) == n->transparent;
+            last_col = col;
+        }
+        bd[x] = 0;
+        if (((bits << (px & 7)) & 0x80)) {
+            rgb[x] = ink;
+            mt[x] = ink_t;
+        } else {
+            rgb[x] = paper;
+            mt[x] = paper_t;
+        }
+        if (row_clipped || phc < clip[0] || phc > clip[1])
+            mt[x] = 1;
+    }
+    return 1;
+}
+
+/* Layer 2 for subpixel 0 of every pixel in [xa, xb) of line wy, in the
+ * 256x192 and 320x256 modes: rgb, priority bit and opaque (0 = transparent,
+ * as l2_pixel() returns), indexed by x. */
+static void l2_layer(const zxn *n, int wy, int xa, int xb, uint16_t *rgb, uint8_t *prio, uint8_t *op)
+{
+    int res = (n->nr_70 >> 4) & 3, x;
+    const uint8_t *clip = n->clip[0];
+    const uint16_t *pal = n->pal_l2s + (((n->nr_43 >> 2) & 1) << 8);
+    int scroll = n->l2_scroll_x_msb << 8 | n->l2_scroll_x;
+    uint32_t bank = ((uint32_t)n->l2_bank + 16) << 14;
+    uint8_t off = n->nr_70;
+    if (!n->l2_en) {
+        memset(op + xa, 0, (size_t)(xb - xa));
+        return;
+    }
+    if (res == 0) {
+        int y = wy - 32, Y;
+        if (y < 0 || y > 191 || y < clip[2] || y > clip[3]) {
+            memset(op + xa, 0, (size_t)(xb - xa));
+            return;
+        }
+        Y = y + n->l2_scroll_y;
+        if (Y >= 192)
+            Y = (Y - 192) & 255;
+        for (x = xa; x < xb; x++) {
+            int px = x - 32;
+            uint32_t a;
+            int pix;
+            uint16_t e;
+            if (px < 0 || px > 255 || px < clip[0] || px > clip[1]) { op[x] = 0; continue; }
+            a = bank + (uint32_t)(Y << 8 | ((px + scroll) & 255));
+            if (a >= NX_SRAM_SIZE) { op[x] = 0; continue; }
+            pix = n->sram[a];
+            pix = (((pix >> 4) + off) & 15) << 4 | (pix & 15);
+            e = pal[pix];
+            rgb[x] = e & 0x1ff;
+            prio[x] = (e >> 10) & 1;
+            op[x] = (rgb[x] >> 1) != n->transparent;
+        }
+    } else {
+        int Y = (wy + n->l2_scroll_y) & 255;
+        if (wy < clip[2] || wy > clip[3]) {
+            memset(op + xa, 0, (size_t)(xb - xa));
+            return;
+        }
+        for (x = xa; x < xb; x++) {
+            int xp, X, pix;
+            uint32_t addr, a;
+            uint16_t e;
+            if (x < clip[0] * 2 || x > clip[1] * 2 + 1) { op[x] = 0; continue; }
+            xp = x + scroll;
+            X = xp < 320 ? xp : (((xp & 511) + 192) & 511);
+            addr = (uint32_t)(X << 8 | Y);
+            a = (((uint32_t)n->l2_bank + 16 + (addr >> 14)) << 14) | (addr & 0x3fff);
+            if (a >= NX_SRAM_SIZE) { op[x] = 0; continue; }
+            pix = n->sram[a];
+            pix = (((pix >> 4) + off) & 15) << 4 | (pix & 15);
+            e = pal[pix];
+            rgb[x] = e & 0x1ff;
+            prio[x] = (e >> 10) & 1;
+            op[x] = (rgb[x] >> 1) != n->transparent;
+        }
+    }
+}
+
+/* mix_ula() with the tilemap off and one of the plain priority orders
+ * (SLU, LSU, SUL, LUS, USL, ULS), over a span whose ULA and Layer 2 are
+ * already worked out. */
+static void mix_plain_span(const zxn *n, uint16_t *row, int wy, int xa, int xb,
+                           const uint16_t *urgb, const uint8_t *umt, const uint8_t *ubd,
+                           const uint16_t *lrgb, const uint8_t *lprio, const uint8_t *lop)
+{
+    int ula_en = !(n->nr_68 & 0x80), order = (n->nr_15 >> 2) & 7, x;
+    uint16_t fb = rgb8to9(n->fallback);
+    const uint16_t *spal = n->pal_l2s + (0x200 | ((n->nr_43 >> 3) & 1) << 8);
+    for (x = xa; x < xb; x++) {
+        int sp = n->spr_line[x];
+        int spr = (sp & 0x100) && sprite_clip(n, x, wy);
+        int l2 = lop[x], pr = l2 && lprio[x];
+        int ula = !umt[x] && ula_en;
+        uint16_t out;
+        switch (order) {
+        case 0: /* SLU */
+            out = pr ? lrgb[x] : spr ? spal[sp & 0xff] & 0x1ff : l2 ? lrgb[x] : ula ? urgb[x] : fb;
+            break;
+        case 1: /* LSU */
+            out = l2 ? lrgb[x] : spr ? spal[sp & 0xff] & 0x1ff : ula ? urgb[x] : fb;
+            break;
+        case 2: /* SUL */
+            out = pr ? lrgb[x] : spr ? spal[sp & 0xff] & 0x1ff : ula ? urgb[x] : l2 ? lrgb[x] : fb;
+            break;
+        case 3: /* LUS */
+            out = l2 ? lrgb[x] : (ula && !(ubd[x] && spr)) ? urgb[x] : spr ? spal[sp & 0xff] & 0x1ff : fb;
+            break;
+        case 4: /* USL */
+            out = pr ? lrgb[x] : (ula && !(ubd[x] && spr)) ? urgb[x] : spr ? spal[sp & 0xff] & 0x1ff : l2 ? lrgb[x] : fb;
+            break;
+        default: /* ULS */
+            out = pr ? lrgb[x] : (ula && !(ubd[x] && spr)) ? urgb[x] : l2 ? lrgb[x] : spr ? spal[sp & 0xff] & 0x1ff : fb;
+            break;
+        }
+        row[2 * x] = row[2 * x + 1] = out;
+    }
+}
+
+/* Whether the two subpixels of a pixel can differ: Timex hi-res, the ULA's
+ * half-pixel scroll, the 80-column tilemap or 640-wide Layer 2. */
+static int needs_halves(const zxn *n)
+{
+    if (((n->port_ff & 4) && !((n->port_7ffd >> 3) & 1)) || (n->nr_68 & 4))
+        return 1;
+    if ((n->nr_6b & 0x80) && (n->nr_6b & 0x40))
+        return 1;
+    if (n->l2_en && ((n->nr_70 >> 4) & 3) == 2)
+        return 1;
+    return 0;
+}
+
 static void draw_span(zxn *n, int wy, int xa, int xb)
 {
     uint16_t *row = n->screen[wy];
@@ -719,10 +916,42 @@ static void draw_span(zxn *n, int wy, int xa, int xb)
         }
         return;
     }
-    for (x = xa; x < xb; x++) {
-        int sp = n->spr_line[x];
-        row[2 * x] = mix(n, x, wy, 0, sp);
-        row[2 * x + 1] = mix(n, x, wy, 1, sp);
+    {
+        static uint16_t urgb[320];
+        static uint8_t umt[320], ubd[320];
+        int halves = needs_halves(n);
+        int plain = !halves && ula_plain_layer(n, wy, xa, xb, urgb, umt, ubd);
+        if (plain && !(n->nr_6b & 0x80) && ((n->nr_15 >> 2) & 7) <= 5) {
+            static uint16_t lrgb[320];
+            static uint8_t lprio[320], lop[320];
+            l2_layer(n, wy, xa, xb, lrgb, lprio, lop);
+            mix_plain_span(n, row, wy, xa, xb, urgb, umt, ubd, lrgb, lprio, lop);
+#ifdef OTB_CHECK_MIX
+            for (x = xa; x < xb; x++)
+                if (row[2 * x] != mix(n, x, wy, 0, n->spr_line[x]) || row[2 * x + 1] != mix(n, x, wy, 1, n->spr_line[x])) {
+                    fprintf(stderr, "plain span mixer differs at %d,%d\n", x, wy);
+                    abort();
+                }
+#endif
+            return;
+        }
+        for (x = xa; x < xb; x++) {
+            int sp = n->spr_line[x];
+            if (plain) {
+                row[2 * x] = row[2 * x + 1] = mix_ula(n, x, wy, 0, sp, urgb[x], umt[x], ubd[x]);
+            } else if (!halves) {
+                row[2 * x] = row[2 * x + 1] = mix(n, x, wy, 0, sp);
+            } else {
+                row[2 * x] = mix(n, x, wy, 0, sp);
+                row[2 * x + 1] = mix(n, x, wy, 1, sp);
+            }
+#ifdef OTB_CHECK_MIX
+            if (row[2 * x] != mix(n, x, wy, 0, sp) || row[2 * x + 1] != mix(n, x, wy, 1, sp)) {
+                fprintf(stderr, "span mixer differs at %d,%d\n", x, wy);
+                abort();
+            }
+#endif
+        }
     }
 }
 

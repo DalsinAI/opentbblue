@@ -373,8 +373,9 @@ int main(int argc, char **argv)
     int scale = -1, full = -1, headless = -1, delay = 250, bench = 0, fetch = -1, update = 0;
     int a, running = 1, turbo = 0, paused = 0, muted = 0, bar_press = 0;
     zx_net *net;
-    uint32_t t0, t1;
+    uint32_t t0, t1, ticks0;
     uint64_t frames0;
+    unsigned long emu_ms = 0, show_ms = 0;
 
     for (a = 1; a < argc; a++) {
         const char *o = argv[a];
@@ -516,7 +517,8 @@ int main(int argc, char **argv)
         if (SDL_IsGameController(a))
             SDL_GameControllerOpen(a);
 
-    t0 = SDL_GetTicks();
+    t0 = otb_ms();
+    ticks0 = SDL_GetTicks();
     frames0 = m.frames;
     while (running) {
         SDL_Event ev;
@@ -644,14 +646,41 @@ int main(int argc, char **argv)
             continue;
         }
         zx_type_frame(&typer, &m);
-        zx_run_frame(&m);
-        otb_video_frame(&m, turbo);
+        {
+            unsigned long e0 = otb_ms(), e1;
+            zx_run_frame(&m);
+            e1 = otb_ms();
+            otb_video_frame(&m, turbo);
+            emu_ms += e1 - e0;
+            show_ms += otb_ms() - e1;
+            if (bench) {
+                /* every 10 s: how this stretch went, so a game's part can be told from the menus' */
+                static unsigned long p_t, p_emu, p_show, p_slept, p_drawn, p_skip;
+                static uint64_t p_frames;
+                unsigned long now = otb_ms();
+                if (!p_t) { p_t = now; p_frames = m.frames; }
+                else if (now - p_t >= 10000) {
+                    unsigned long dt = now - p_t;
+                    printf("OpenTBBlue: %lu s: %.1f frames a second at %d MHz; %lu drawn, %lu skipped; %.2f s emulating, %.2f s showing, %.2f s slept\n",
+                           now / 1000, (double)(m.frames - p_frames) * 1000.0 / dt,
+                           m.next ? (int)(3.5 * (1 << m.next->speed)) : 3,
+                           otb_frames_drawn - p_drawn, otb_frames_skipped - p_skip,
+                           (emu_ms - p_emu) / 1000.0, (show_ms - p_show) / 1000.0, (otb_slept_ms - p_slept) / 1000.0);
+                    fflush(stdout);
+                    p_t = now; p_frames = m.frames; p_emu = emu_ms; p_show = show_ms;
+                    p_slept = otb_slept_ms; p_drawn = otb_frames_drawn; p_skip = otb_frames_skipped;
+                }
+            }
+        }
     }
-    t1 = SDL_GetTicks();
+    t1 = otb_ms();
     if (bench && t1 > t0)
-        printf("OpenTBBlue: %.1f frames a second; %lu drawn, %lu skipped, %lu lines converted\n",
+        printf("OpenTBBlue: %.1f frames a second; %lu drawn, %lu skipped, %lu lines converted; sound taken at %.0f Hz, %.2f s of it left out; %.2f s emulating, %.2f s showing, %.2f s asked to wait, %.2f s slept; counter %.0f Hz, ticks said %.2f s\n",
                (double)(m.frames - frames0) * 1000.0 / (t1 - t0),
-               otb_frames_drawn, otb_frames_skipped, otb_lines_converted);
+               otb_frames_drawn, otb_frames_skipped, otb_lines_converted,
+               otb_audio_rate((t1 - t0) / 1000.0), otb_audio_dropped_s(),
+               emu_ms / 1000.0, show_ms / 1000.0, otb_wait_ms / 1000.0, otb_slept_ms / 1000.0,
+               otb_counter_hz(), (SDL_GetTicks() - ticks0) / 1000.0);
     otb_video_close();
     zx_free(&m);
     zx_net_posix_free(net);

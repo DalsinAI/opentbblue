@@ -74,6 +74,28 @@ static void size_window(void)
 }
 
 unsigned long otb_frames_drawn, otb_frames_skipped, otb_lines_converted;
+unsigned long long otb_audio_queued;   /* bytes handed to the sound device */
+unsigned long otb_wait_ms;             /* time asked to wait for the next frame's turn */
+unsigned long otb_slept_ms;            /* time those waits really took */
+
+unsigned long otb_ms(void)
+{
+    static Uint64 base, hz;
+    Uint64 c = SDL_GetPerformanceCounter();
+    if (!hz) {
+        hz = SDL_GetPerformanceFrequency();
+        if (!hz) hz = 1000;
+        base = c;
+    }
+    c -= base;
+    return (unsigned long)((c / hz) * 1000 + (c % hz) * 1000 / hz);
+}
+
+double otb_counter_hz(void)
+{
+    return (double)SDL_GetPerformanceFrequency();
+}
+unsigned long long otb_audio_dropped;  /* bytes of sound left out: the device was behind */
 
 int otb_video_open(zx *m, const char *title, int scale, int fullscreen, int pinned)
 {
@@ -511,40 +533,62 @@ static int convert(const zx *m, int *y0, int *y1)
     return n;
 }
 
+/* Sound samples a second the device has taken since the start. */
+double otb_audio_rate(double seconds)
+{
+    if (!dev || seconds <= 0)
+        return 0;
+    return (double)(otb_audio_queued - SDL_GetQueuedAudioSize(dev)) / 4.0 / seconds;
+}
+
+/* Seconds of sound left out because the device was behind. */
+double otb_audio_dropped_s(void)
+{
+    return (double)otb_audio_dropped / 4.0 / ZX_AUDIO_RATE;
+}
+
 void otb_video_frame(zx *m, int turbo)
 {
     int late = 0, y0, y1;
 
-    if (dev && !turbo) {
-        Uint32 q;
-        if (bst.muted) {
-            size_t n = (size_t)m->audio_samples * 4;
-            if (n > silence_bytes) {
-                free(silence);
-                silence = calloc(1, n);
-                silence_bytes = silence ? n : 0;
-            }
-            if (silence)
-                SDL_QueueAudio(dev, silence, (Uint32)n);
-        } else
-            SDL_QueueAudio(dev, m->audio, (Uint32)m->audio_samples * 4);
-        q = SDL_GetQueuedAudioSize(dev);
-        /* Less than a frame of sound left: we are behind real time. */
-        late = q < audio_frame_bytes;
-        /* Keep about three frames queued: that paces the emulation to the
-         * Next's own 50 Hz. */
-        while (SDL_GetQueuedAudioSize(dev) > audio_frame_bytes * 3)
-            SDL_Delay(1);
-    } else if (!dev && !turbo) {
+    if (!turbo) {
+        /* The clock paces the emulation to the Next's 50 Hz. The sound
+         * follows: a device that takes samples slower than it should (AHI
+         * does while the screen is busy) loses a frame of sound now and
+         * then instead of slowing the whole machine down to its rate. */
         static Uint32 next_tick;
-        Uint32 now = SDL_GetTicks();
-        if (!next_tick)
-            next_tick = now;
+        Uint32 now;
+        if (dev) {
+            Uint32 q = SDL_GetQueuedAudioSize(dev);
+            size_t n = (size_t)m->audio_samples * 4;
+            if (q > audio_frame_bytes * 6) {
+                otb_audio_dropped += n;
+            } else if (bst.muted) {
+                if (n > silence_bytes) {
+                    free(silence);
+                    silence = calloc(1, n);
+                    silence_bytes = silence ? n : 0;
+                }
+                if (silence) {
+                    SDL_QueueAudio(dev, silence, (Uint32)n);
+                    otb_audio_queued += n;
+                }
+            } else {
+                SDL_QueueAudio(dev, m->audio, (Uint32)n);
+                otb_audio_queued += n;
+            }
+        }
+        now = (Uint32)otb_ms();
+        if (!next_tick || (int32_t)(now - next_tick) > 200)
+            next_tick = now;        /* first frame, or back from a pause */
         next_tick += 20;
-        if ((int32_t)(next_tick - now) > 0)
+        if ((int32_t)(next_tick - now) > 0) {
             SDL_Delay(next_tick - now);
-        else
+            otb_wait_ms += next_tick - now;
+            otb_slept_ms += (Uint32)otb_ms() - now;
+        } else {
             late = (int32_t)(now - next_tick) > 20;
+        }
     }
 
     if ((turbo && (m->frames % 10)) || (late && skipped < OTB_MAX_SKIP)) {
