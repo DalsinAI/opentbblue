@@ -5,7 +5,7 @@ badge), opentbblue.ico (Windows, 16 to 256), and the Amiga badges for the
 drawers the first start makes: sdcard-64.png (a card, for drives/ and
 each card in it) and media-64.png (the downloads, a box with the stripes).
 Needs Pillow.
-MIT, Copyright (c) 2026 AmigaChrome Team."""
+MIT, Copyright (c) 2026 AmiCradle Team."""
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 

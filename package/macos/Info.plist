@@ -13,6 +13,6 @@
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
-  <key>NSHumanReadableCopyright</key><string>Copyright (c) 2026 AmigaChrome Team. GPL-3.0.</string>
+  <key>NSHumanReadableCopyright</key><string>Copyright (c) 2026 AmiCradle Team. GPL-3.0.</string>
 </dict>
 </plist>
