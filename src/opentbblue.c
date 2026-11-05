@@ -653,6 +653,24 @@ int main(int argc, char **argv)
             otb_video_frame(&m, turbo);
             emu_ms += e1 - e0;
             show_ms += otb_ms() - e1;
+            if (bench) {
+                /* every 10 s: how this stretch went, so a game's part can be told from the menus' */
+                static unsigned long p_t, p_emu, p_show, p_slept, p_drawn, p_skip;
+                static uint64_t p_frames;
+                unsigned long now = otb_ms();
+                if (!p_t) { p_t = now; p_frames = m.frames; }
+                else if (now - p_t >= 10000) {
+                    unsigned long dt = now - p_t;
+                    printf("OpenTBBlue: %lu s: %.1f frames a second at %d MHz; %lu drawn, %lu skipped; %.2f s emulating, %.2f s showing, %.2f s slept\n",
+                           now / 1000, (double)(m.frames - p_frames) * 1000.0 / dt,
+                           m.next ? (int)(3.5 * (1 << m.next->speed)) : 3,
+                           otb_frames_drawn - p_drawn, otb_frames_skipped - p_skip,
+                           (emu_ms - p_emu) / 1000.0, (show_ms - p_show) / 1000.0, (otb_slept_ms - p_slept) / 1000.0);
+                    fflush(stdout);
+                    p_t = now; p_frames = m.frames; p_emu = emu_ms; p_show = show_ms;
+                    p_slept = otb_slept_ms; p_drawn = otb_frames_drawn; p_skip = otb_frames_skipped;
+                }
+            }
         }
     }
     t1 = otb_ms();
