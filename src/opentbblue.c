@@ -649,9 +649,10 @@ int main(int argc, char **argv)
     }
     t1 = SDL_GetTicks();
     if (bench && t1 > t0)
-        printf("OpenTBBlue: %.1f frames a second; %lu drawn, %lu skipped, %lu lines converted\n",
+        printf("OpenTBBlue: %.1f frames a second; %lu drawn, %lu skipped, %lu lines converted; sound taken at %.0f Hz, %.2f s waiting for it\n",
                (double)(m.frames - frames0) * 1000.0 / (t1 - t0),
-               otb_frames_drawn, otb_frames_skipped, otb_lines_converted);
+               otb_frames_drawn, otb_frames_skipped, otb_lines_converted,
+               otb_audio_rate((t1 - t0) / 1000.0), otb_wait_ms / 1000.0);
     otb_video_close();
     zx_free(&m);
     zx_net_posix_free(net);

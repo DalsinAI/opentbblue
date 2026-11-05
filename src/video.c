@@ -74,6 +74,8 @@ static void size_window(void)
 }
 
 unsigned long otb_frames_drawn, otb_frames_skipped, otb_lines_converted;
+unsigned long long otb_audio_queued;   /* bytes handed to the sound device */
+unsigned long otb_wait_ms;             /* time spent waiting for the sound to drain */
 
 int otb_video_open(zx *m, const char *title, int scale, int fullscreen, int pinned)
 {
@@ -511,6 +513,14 @@ static int convert(const zx *m, int *y0, int *y1)
     return n;
 }
 
+/* Sound samples a second the device has taken since the start. */
+double otb_audio_rate(double seconds)
+{
+    if (!dev || seconds <= 0)
+        return 0;
+    return (double)(otb_audio_queued - SDL_GetQueuedAudioSize(dev)) / 4.0 / seconds;
+}
+
 void otb_video_frame(zx *m, int turbo)
 {
     int late = 0, y0, y1;
@@ -526,15 +536,21 @@ void otb_video_frame(zx *m, int turbo)
             }
             if (silence)
                 SDL_QueueAudio(dev, silence, (Uint32)n);
+            otb_audio_queued += n;
         } else
             SDL_QueueAudio(dev, m->audio, (Uint32)m->audio_samples * 4);
+        otb_audio_queued += (unsigned long long)m->audio_samples * 4;
         q = SDL_GetQueuedAudioSize(dev);
         /* Less than a frame of sound left: we are behind real time. */
         late = q < audio_frame_bytes;
         /* Keep about three frames queued: that paces the emulation to the
          * Next's own 50 Hz. */
-        while (SDL_GetQueuedAudioSize(dev) > audio_frame_bytes * 3)
-            SDL_Delay(1);
+        {
+            Uint32 w0 = SDL_GetTicks();
+            while (SDL_GetQueuedAudioSize(dev) > audio_frame_bytes * 3)
+                SDL_Delay(1);
+            otb_wait_ms += SDL_GetTicks() - w0;
+        }
     } else if (!dev && !turbo) {
         static Uint32 next_tick;
         Uint32 now = SDL_GetTicks();

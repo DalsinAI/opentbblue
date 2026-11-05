@@ -52,5 +52,7 @@ void otb_video_close(void);
 
 /* Counters for -b. */
 extern unsigned long otb_frames_drawn, otb_frames_skipped, otb_lines_converted;
+double otb_audio_rate(double seconds);
+extern unsigned long otb_wait_ms;
 
 #endif
