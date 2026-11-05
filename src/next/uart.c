@@ -21,18 +21,18 @@
 
 enum { SRC_UART0_RX = 1, SRC_UART1_RX = 2, SRC_UART0_TX = 12, SRC_UART1_TX = 13 };
 
-static uint64_t frame_bits(uint8_t fr)
+static nx_clk frame_bits(uint8_t fr)
 {
     return 1 + 5 + (fr >> 3 & 3) + (fr >> 2 & 1) + 1 + (fr & 1);
 }
 
-static uint64_t byte_ticks(const nx_uart *u)
+static nx_clk byte_ticks(const nx_uart *u)
 {
-    return (uint64_t)(u->prescaler ? u->prescaler : 1) * frame_bits(u->framing);
+    return (nx_clk)(u->prescaler ? u->prescaler : 1) * frame_bits(u->framing);
 }
 
 /* Master ticks per bit at the device's own speed. */
-static uint64_t dev_bit(const nx_uart *u)
+static nx_clk dev_bit(const nx_uart *u)
 {
     uint32_t baud = u->dev && u->dev->baud ? u->dev->baud : 115200;
     return (28000000u + baud / 2) / baud;
@@ -41,13 +41,13 @@ static uint64_t dev_bit(const nx_uart *u)
 /* Both ends agree on the speed to within 4%. */
 static int in_step(const nx_uart *u)
 {
-    uint64_t a = u->prescaler, b = dev_bit(u);
-    uint64_t d = a > b ? a - b : b - a;
+    nx_clk a = u->prescaler, b = dev_bit(u);
+    nx_clk d = a > b ? a - b : b - a;
     return d * 25 <= a;
 }
 
 /* Master ticks for a byte coming from the device. */
-static uint64_t rx_ticks(const nx_uart *u)
+static nx_clk rx_ticks(const nx_uart *u)
 {
     return frame_bits(u->framing) * dev_bit(u);
 }
@@ -65,7 +65,7 @@ static int rx_request(const zxn *n, int i)
 }
 
 /* Interrupts fire on a rising request (im2_peripheral.vhd). */
-static void update_ints(zxn *n, int i, uint64_t t)
+static void update_ints(zxn *n, int i, nx_clk t)
 {
     nx_uart *u = &n->uart[i];
     int rx = rx_request(n, i), tx = u->tx_count == 0;
@@ -85,7 +85,7 @@ static void fifo_reset(nx_uart *u)
     u->err_overflow = u->err_framing = 0;
 }
 
-static void run_one(zxn *n, int i, uint64_t upto)
+static void run_one(zxn *n, int i, nx_clk upto)
 {
     nx_uart *u = &n->uart[i];
     zx_serial *dev = u->dev;
@@ -97,8 +97,8 @@ static void run_one(zxn *n, int i, uint64_t upto)
         return;
     }
     for (;;) {
-        uint64_t t_tx = u->tx_busy ? u->tx_done : UINT64_MAX;
-        uint64_t t_rx = UINT64_MAX;
+        nx_clk t_tx = u->tx_busy ? u->tx_done : NX_NEVER;
+        nx_clk t_rx = NX_NEVER;
         int flow = (u->framing & 0x20) != 0;
         if (dev && dev->avail(dev) && !(flow && u->rx_count >= ALMOST))
             t_rx = u->rx_free + rx_ticks(u);
@@ -143,21 +143,21 @@ static void run_one(zxn *n, int i, uint64_t upto)
 static void schedule(zxn *n)
 {
     int i;
-    n->uart_next = UINT64_MAX;
+    n->uart_next = NX_NEVER;
     n->ev_next = 0;
     for (i = 0; i < 2; i++) {
         nx_uart *u = &n->uart[i];
         if (u->tx_busy && u->tx_done < n->uart_next)
             n->uart_next = u->tx_done;
         if (u->dev && u->dev->avail(u->dev) && !(u->framing & 0x80)) {
-            uint64_t t = u->rx_free + rx_ticks(u);
+            nx_clk t = u->rx_free + rx_ticks(u);
             if (t < n->uart_next)
                 n->uart_next = t;
         }
     }
 }
 
-void nx_uart_run(zxn *n, uint64_t upto)
+void nx_uart_run(zxn *n, nx_clk upto)
 {
     run_one(n, 0, upto);
     run_one(n, 1, upto);
@@ -165,7 +165,7 @@ void nx_uart_run(zxn *n, uint64_t upto)
 }
 
 /* Once per frame: let the devices do their work (network, timers). */
-void nx_uart_poll(zxn *n, uint64_t now)
+void nx_uart_poll(zxn *n, nx_clk now)
 {
     int i;
     nx_uart_run(n, now);

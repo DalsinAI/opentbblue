@@ -487,6 +487,8 @@ int main(int argc, char **argv)
         int f;
         {
             clock_t c0 = clock();
+            if (bench)    /* where the code is, to read a profiler's addresses against the link map */
+                printf("OpenTBBlue: main at %p\n", (void *)main);
             for (f = 0; f < headless; f++) {
                 zx_type_frame(&typer, &m);
                 zx_run_frame(&m);

@@ -726,7 +726,7 @@ static void draw_span(zxn *n, int wy, int xa, int xb)
     }
 }
 
-void nx_video_run(zxn *n, uint64_t upto_clk)
+void nx_video_run(zxn *n, nx_clk upto_clk)
 {
     const nx_timing *t = &n->tm;
     /* A frame is under 2^18 pixels, so all of this fits 32 bits: no 64-bit
@@ -734,12 +734,12 @@ void nx_video_run(zxn *n, uint64_t upto_clk)
     int32_t total = (int32_t)t->hc * t->vc;
     int32_t base = ((int32_t)t->int_v * t->hc + t->int_h + 1) % total;
     int32_t target, p;
-    uint64_t d;
+    nx_clk d;
 
     if (upto_clk <= n->frame_start)
         return;
     d = (upto_clk - n->frame_start) >> 2;
-    target = d > (uint64_t)total ? total : (int32_t)d;
+    target = d > (nx_clk)total ? total : (int32_t)d;
     p = (int32_t)n->video_pix;
     while (p < target) {
         int32_t raw = base + p;
@@ -763,7 +763,7 @@ void nx_video_run(zxn *n, uint64_t upto_clk)
         }
         p += run;
     }
-    n->video_pix = (uint64_t)p;
+    n->video_pix = (nx_clk)p;
 }
 
 void nx_video_frame_end(zxn *n)
@@ -791,13 +791,13 @@ uint8_t nx_floating_bus(zxn *n)
     static const uint32_t paper_t[3] = { 14336, 14364, 14364 };
     int kind = (n->eff_timing & 4) ? 3 : (n->eff_timing & 3) == 2 ? 1 : (n->eff_timing & 3) == 3 ? 2 : 0;
     uint32_t line_t = kind == 0 ? 224 : 228;
-    int64_t t, p0, d;
+    int32_t t, p0, d;
     uint32_t line, x, col;
     int shadow = (n->port_7ffd >> 3) & 1;
     if (kind == 3)
         return 0xff;
-    t = (int64_t)((n->clk - n->frame_start) >> 3) - 1;
-    p0 = (int64_t)paper_t[kind] - (int64_t)(64 - n->tm.min_vactive) * line_t;
+    t = (int32_t)((n->clk - n->frame_start) >> 3) - 1;
+    p0 = (int32_t)paper_t[kind] - (int32_t)(64 - n->tm.min_vactive) * line_t;
     if (t < p0)
         return 0xff;
     d = t - p0;

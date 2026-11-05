@@ -17,6 +17,15 @@
 #include <stdint.h>
 #include <stdio.h>
 
+/*
+ * Master-clock times (28 MHz ticks). 32 bits, so the hot paths do no
+ * 64-bit maths (ADDX/SUBX pairs on a 68k): nx_run_frame moves every time
+ * back by the same amount once the frame start passes NX_CLK_REBASE, so
+ * the clock never gets near the top while every difference stays exact.
+ */
+typedef uint32_t nx_clk;
+#define NX_NEVER ((nx_clk)~(nx_clk)0)
+
 #include "../zx/ay.h"
 #include "../zx/kmouse.h"
 
@@ -58,7 +67,7 @@ typedef struct nx_dma {
     uint8_t active;        /* transfer in progress (START_DMA ...) */
     uint8_t starting;      /* bus request still to be granted */
     uint8_t end_of_block_n, at_least_one;
-    uint64_t next_clk;     /* burst mode: when the next byte may go */
+    nx_clk next_clk;     /* burst mode: when the next byte may go */
 } nx_dma;
 
 typedef struct nx_uart {
@@ -69,8 +78,8 @@ typedef struct nx_uart {
     uint8_t tx[64];
     uint8_t tx_head, tx_count;
     uint8_t tx_busy, tx_byte;
-    uint64_t tx_done;      /* when the byte going out has gone */
-    uint64_t rx_free;      /* when the last byte in finished arriving */
+    nx_clk tx_done;      /* when the byte going out has gone */
+    nx_clk rx_free;      /* when the last byte in finished arriving */
     uint8_t err_overflow, err_framing;
     uint8_t req_rx, req_tx;  /* interrupt request levels */
     struct zx_serial *dev; /* ESP (0), Pi (1), or nothing */
@@ -81,7 +90,7 @@ typedef struct nx_ctc {
     uint8_t tc;            /* time constant */
     uint8_t count;
     uint8_t state;         /* 0 reset, 1 reset+await TC, 2 trigger, 3 run, 4 run+await TC */
-    uint64_t next;         /* timer mode: tick of the next decrement */
+    nx_clk next;         /* timer mode: tick of the next decrement */
 } nx_ctc;
 
 typedef struct zxn {
@@ -96,10 +105,10 @@ typedef struct zxn {
     nx_slot slot[8];
 
     /* time */
-    uint64_t clk;             /* master ticks since power on */
-    uint64_t frame_start;     /* clk at this frame's ULA interrupt */
+    nx_clk clk;             /* master ticks (moved back now and then, see clk_rebase) */
+    nx_clk frame_start;     /* clk at this frame's ULA interrupt */
     uint32_t frame_ticks;
-    uint64_t frames;
+    uint64_t frames;  /* (not a time) */
     nx_timing tm;             /* effective timing for this frame */
     uint8_t speed;            /* effective CPU speed 0..3 */
     uint8_t tick;             /* master ticks per CPU T-state */
@@ -134,6 +143,7 @@ typedef struct zxn {
     uint8_t nr_11;
     uint8_t eff_5060;         /* nr_05 bit 2 as latched at the frame start */
     uint8_t eff_contention_off; /* nr_08 bit 6 as latched */
+    uint8_t cont_on;            /* contention applies now (cont_update) */
     uint8_t l2_bank, l2_shadow_bank;          /* nr_12, nr_13 */
     uint8_t transparent;                      /* nr_14 */
     uint8_t nr_15;
@@ -171,8 +181,8 @@ typedef struct zxn {
     uint16_t cu_pc;
     uint8_t cu_last_mode;
     uint8_t cu_move_clear;    /* a MOVE was output last cycle */
-    uint64_t cu_clk;          /* master tick the copper has run up to */
-    uint64_t cu_restart;      /* next cvc 0 / hc 0 point (mode 11) */
+    nx_clk cu_clk;          /* master tick the copper has run up to */
+    nx_clk cu_restart;      /* next cvc 0 / hc 0 point (mode 11) */
 
     /* divMMC automap (device/divmmc.vhd) */
     uint8_t automap_held, automap_hold;
@@ -191,9 +201,10 @@ typedef struct zxn {
 
     /* interrupts (device/im2_*.vhd) */
     uint8_t im2_state[14];    /* 0 idle, 1 request, 2 ack, 3 in service */
+    uint8_t im2_busy;         /* how many im2_state entries are not idle */
     uint8_t int_status[14];
-    uint64_t pulse_start, pulse_end;
-    uint64_t line_int_clk;    /* next line interrupt, or ~0 */
+    nx_clk pulse_start, pulse_end;
+    nx_clk line_int_clk;    /* next line interrupt, or ~0 */
 
     /* devices */
     nx_dma dma;
@@ -202,8 +213,8 @@ typedef struct zxn {
     nx_sd *sd[2];
     nx_uart uart[2];
     uint8_t uart_sel;
-    uint64_t uart_next;       /* next UART event, or ~0 */
-    uint64_t ev_next;         /* events() has nothing to do before this clk; 0 = look */
+    nx_clk uart_next;       /* next UART event, or ~0 */
+    nx_clk ev_next;         /* events() has nothing to do before this clk; 0 = look */
 
     /* sprites */
     uint8_t spr_attr[NX_SPRITES][5];
@@ -218,7 +229,7 @@ typedef struct zxn {
 
     /* video */
     uint16_t screen[NX_H][NX_W];
-    uint64_t video_pix;       /* next 7 MHz pixel to draw (from frame start) */
+    nx_clk video_pix;       /* next 7 MHz pixel to draw (from frame start) */
     uint8_t flash;
     uint8_t keys_ext[2];      /* nr_b0, nr_b1 extended keys (active high) */
 
@@ -228,11 +239,13 @@ typedef struct zxn {
     ay_chip ay[3];
     uint8_t ay_select, ay_pan[3];
     uint8_t dac[4];
-    uint64_t audio_clk;       /* master tick the audio has reached */
-    uint64_t audio_next;      /* master tick of the next output sample */
-    uint64_t audio_prev;      /* master tick of the last output sample */
-    uint64_t audio_frac;      /* fractional part of audio_next, 0.32 */
-    int64_t acc_l, acc_r;     /* level x ticks since the last sample */
+    nx_clk audio_clk;       /* master tick the audio has reached */
+    nx_clk audio_next;      /* master tick of the next output sample */
+    nx_clk audio_prev;      /* master tick of the last output sample */
+    uint32_t audio_frac;      /* fractional part of audio_next, 0.32 */
+    /* level x ticks since the last sample: at most 2808 x one sample's
+     * ticks (about 635), so 32 bits, which a 68k adds and divides itself */
+    int32_t acc_l, acc_r;
     uint32_t ay_div;          /* master ticks towards the next AY clock */
 } zxn;
 
@@ -261,7 +274,7 @@ void nx_state_load(struct zx *m, const uint8_t *in, int has_sd[2]);
 
 /* internal, shared between the next/ files */
 void nx_video_reset(zxn *n);
-void nx_video_run(zxn *n, uint64_t upto_clk);
+void nx_video_run(zxn *n, nx_clk upto_clk);
 void nx_video_frame_end(zxn *n);
 uint8_t nx_floating_bus(zxn *n);
 void nx_sprite_port_57(zxn *n, uint8_t v);
@@ -281,12 +294,12 @@ void nx_sd_state_load(nx_sd *sd, const uint8_t *in);
 
 void nx_uart_power_on(zxn *n);
 void nx_uart_reset(zxn *n);
-void nx_uart_run(zxn *n, uint64_t upto);
-void nx_uart_poll(zxn *n, uint64_t now);
+void nx_uart_run(zxn *n, nx_clk upto);
+void nx_uart_poll(zxn *n, nx_clk now);
 uint8_t nx_uart_read(zxn *n, int reg);
 void nx_uart_write(zxn *n, int reg, uint8_t v);
 /* Raise an IM2 peripheral interrupt (0 line .. 13 UART 1 Tx) at tick t. */
-void nx_raise_int(zxn *n, int src, uint64_t t);
+void nx_raise_int(zxn *n, int src, nx_clk t);
 
 void nx_dma_reset(zxn *n);
 void nx_dma_write(zxn *n, uint8_t v);
