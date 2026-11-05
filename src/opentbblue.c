@@ -375,6 +375,7 @@ int main(int argc, char **argv)
     zx_net *net;
     uint32_t t0, t1;
     uint64_t frames0;
+    unsigned long emu_ms = 0, show_ms = 0;
 
     for (a = 1; a < argc; a++) {
         const char *o = argv[a];
@@ -644,15 +645,22 @@ int main(int argc, char **argv)
             continue;
         }
         zx_type_frame(&typer, &m);
-        zx_run_frame(&m);
-        otb_video_frame(&m, turbo);
+        {
+            Uint32 e0 = SDL_GetTicks(), e1;
+            zx_run_frame(&m);
+            e1 = SDL_GetTicks();
+            otb_video_frame(&m, turbo);
+            emu_ms += e1 - e0;
+            show_ms += SDL_GetTicks() - e1;
+        }
     }
     t1 = SDL_GetTicks();
     if (bench && t1 > t0)
-        printf("OpenTBBlue: %.1f frames a second; %lu drawn, %lu skipped, %lu lines converted; sound taken at %.0f Hz, %.2f s of it left out, %.2f s waiting\n",
+        printf("OpenTBBlue: %.1f frames a second; %lu drawn, %lu skipped, %lu lines converted; sound taken at %.0f Hz, %.2f s of it left out; %.2f s emulating, %.2f s showing, %.2f s asked to wait, %.2f s slept\n",
                (double)(m.frames - frames0) * 1000.0 / (t1 - t0),
                otb_frames_drawn, otb_frames_skipped, otb_lines_converted,
-               otb_audio_rate((t1 - t0) / 1000.0), otb_audio_dropped_s(), otb_wait_ms / 1000.0);
+               otb_audio_rate((t1 - t0) / 1000.0), otb_audio_dropped_s(),
+               emu_ms / 1000.0, show_ms / 1000.0, otb_wait_ms / 1000.0, otb_slept_ms / 1000.0);
     otb_video_close();
     zx_free(&m);
     zx_net_posix_free(net);

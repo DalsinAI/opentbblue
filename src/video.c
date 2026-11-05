@@ -75,7 +75,8 @@ static void size_window(void)
 
 unsigned long otb_frames_drawn, otb_frames_skipped, otb_lines_converted;
 unsigned long long otb_audio_queued;   /* bytes handed to the sound device */
-unsigned long otb_wait_ms;             /* time spent waiting for the next frame's turn */
+unsigned long otb_wait_ms;             /* time asked to wait for the next frame's turn */
+unsigned long otb_slept_ms;            /* time those waits really took */
 unsigned long long otb_audio_dropped;  /* bytes of sound left out: the device was behind */
 
 int otb_video_open(zx *m, const char *title, int scale, int fullscreen, int pinned)
@@ -566,6 +567,7 @@ void otb_video_frame(zx *m, int turbo)
         if ((int32_t)(next_tick - now) > 0) {
             SDL_Delay(next_tick - now);
             otb_wait_ms += next_tick - now;
+            otb_slept_ms += SDL_GetTicks() - now;
         } else {
             late = (int32_t)(now - next_tick) > 20;
         }
