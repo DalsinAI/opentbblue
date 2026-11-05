@@ -54,6 +54,9 @@ void otb_video_close(void);
 extern unsigned long otb_frames_drawn, otb_frames_skipped, otb_lines_converted;
 double otb_audio_rate(double seconds);
 extern unsigned long otb_wait_ms, otb_slept_ms;
+/* Milliseconds from the performance counter, worked out in 64 bits. */
+unsigned long otb_ms(void);
+double otb_counter_hz(void);
 double otb_audio_dropped_s(void);
 
 #endif

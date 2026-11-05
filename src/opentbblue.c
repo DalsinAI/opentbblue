@@ -373,7 +373,7 @@ int main(int argc, char **argv)
     int scale = -1, full = -1, headless = -1, delay = 250, bench = 0, fetch = -1, update = 0;
     int a, running = 1, turbo = 0, paused = 0, muted = 0, bar_press = 0;
     zx_net *net;
-    uint32_t t0, t1;
+    uint32_t t0, t1, ticks0;
     uint64_t frames0;
     unsigned long emu_ms = 0, show_ms = 0;
 
@@ -517,7 +517,8 @@ int main(int argc, char **argv)
         if (SDL_IsGameController(a))
             SDL_GameControllerOpen(a);
 
-    t0 = SDL_GetTicks();
+    t0 = otb_ms();
+    ticks0 = SDL_GetTicks();
     frames0 = m.frames;
     while (running) {
         SDL_Event ev;
@@ -646,21 +647,22 @@ int main(int argc, char **argv)
         }
         zx_type_frame(&typer, &m);
         {
-            Uint32 e0 = SDL_GetTicks(), e1;
+            unsigned long e0 = otb_ms(), e1;
             zx_run_frame(&m);
-            e1 = SDL_GetTicks();
+            e1 = otb_ms();
             otb_video_frame(&m, turbo);
             emu_ms += e1 - e0;
-            show_ms += SDL_GetTicks() - e1;
+            show_ms += otb_ms() - e1;
         }
     }
-    t1 = SDL_GetTicks();
+    t1 = otb_ms();
     if (bench && t1 > t0)
-        printf("OpenTBBlue: %.1f frames a second; %lu drawn, %lu skipped, %lu lines converted; sound taken at %.0f Hz, %.2f s of it left out; %.2f s emulating, %.2f s showing, %.2f s asked to wait, %.2f s slept\n",
+        printf("OpenTBBlue: %.1f frames a second; %lu drawn, %lu skipped, %lu lines converted; sound taken at %.0f Hz, %.2f s of it left out; %.2f s emulating, %.2f s showing, %.2f s asked to wait, %.2f s slept; counter %.0f Hz, ticks said %.2f s\n",
                (double)(m.frames - frames0) * 1000.0 / (t1 - t0),
                otb_frames_drawn, otb_frames_skipped, otb_lines_converted,
                otb_audio_rate((t1 - t0) / 1000.0), otb_audio_dropped_s(),
-               emu_ms / 1000.0, show_ms / 1000.0, otb_wait_ms / 1000.0, otb_slept_ms / 1000.0);
+               emu_ms / 1000.0, show_ms / 1000.0, otb_wait_ms / 1000.0, otb_slept_ms / 1000.0,
+               otb_counter_hz(), (SDL_GetTicks() - ticks0) / 1000.0);
     otb_video_close();
     zx_free(&m);
     zx_net_posix_free(net);
