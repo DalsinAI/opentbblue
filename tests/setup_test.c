@@ -266,6 +266,39 @@ int main(void)
     fclose(fp);
     CHECK(otb_default_config(dir) == 0);
     CHECK(file_is(p, "timing=3\n"));
+    /* timing=8, no mode chosen, is not a choice to keep. */
+    fp = fopen(p, "wb");
+    fputs("timing=8\n", fp);
+    fclose(fp);
+    CHECK(otb_default_config(dir) == 0);
+    CHECK(file_is(p, "timing=0\n"));
+
+    /* System/Next since 8 Nov 2026 ships CONFIG.INI with no mode chosen
+     * (timing=8, the monitor test card). It is set in place, every other
+     * line kept, and no second config.ini is written beside it. */
+    snprintf(longname, sizeof longname, "%s-cfg/machines/next", dir);
+    CHECK(otb_mkdirs(longname) == 0);
+    snprintf(p, sizeof p, "%s/CONFIG.INI", longname);
+    fp = fopen(p, "wb");
+    fputs("scandoubler=1\ntiming=8\ntiming=80\ndac=1\n", fp);
+    fclose(fp);
+    snprintf(longname, sizeof longname, "%s-cfg", dir);
+    CHECK(otb_default_config(longname) == 0);
+    CHECK(file_is(p, "scandoubler=1\ntiming=0\ntiming=80\ndac=1\n"));
+    snprintf(p, sizeof p, "%s/machines/next/config.ini", longname);
+    CHECK(!exists(p));
+    /* A card an older OpenTBBlue gave both: each one is set. */
+    fp = fopen(p, "wb");
+    fputs("timing=0\n", fp);
+    fclose(fp);
+    snprintf(p, sizeof p, "%s/machines/next/CONFIG.INI", longname);
+    fp = fopen(p, "wb");
+    fputs("timing=8\r\n", fp);
+    fclose(fp);
+    CHECK(otb_default_config(longname) == 0);
+    CHECK(file_is(p, "timing=0\r\n"));
+    snprintf(p, sizeof p, "%s/machines/next/config.ini", longname);
+    CHECK(file_is(p, "timing=0\n"));
 
     /* A damaged header stops the unpack. */
     tarbuf[512 * 3 + 10] ^= 0x55;
