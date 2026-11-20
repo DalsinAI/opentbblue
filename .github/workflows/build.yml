@@ -11,7 +11,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, lumavault]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
