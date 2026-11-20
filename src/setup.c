@@ -15,6 +15,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <dirent.h>
 #if defined(__AMIGA__) || defined(__amigaos__)
 #include <proto/dos.h>
 #endif
@@ -166,13 +167,72 @@ int otb_card_ready(const char *sd)
     return is_dir(p);
 }
 
+/* timing=8 is the distribution's "no video mode chosen yet": the firmware
+ * shows its monitor test card until one is. Put the first mode in its
+ * place and leave every other line as it is. 1 when the file changed. */
+static int choose_timing(const char *p)
+{
+    char buf[8192], *t;
+    size_t n;
+    FILE *fp = fopen(p, "rb");
+    if (!fp)
+        return -1;
+    n = fread(buf, 1, sizeof buf - 1, fp);
+    fclose(fp);
+    buf[n] = 0;
+    for (t = buf; (t = strstr(t, "timing=8")) != NULL; t++)
+        if ((t == buf || t[-1] == '\n') && (t[8] == '\n' || t[8] == '\r' || t[8] == 0))
+            break;
+    if (!t || n == sizeof buf - 1)
+        return 0;
+    t[7] = '0';
+    fp = fopen(p, "wb");
+    if (!fp)
+        return -1;
+    fwrite(buf, 1, n, fp);
+    return fclose(fp) ? -1 : 1;
+}
+
+/* "config.ini" in any case: FAT ignores case, so CONFIG.INI and config.ini
+ * are one file to the Next. */
+static int config_name(const char *a)
+{
+    const char *b = "config.ini";
+    while (*a && *b && (*a | 0x20) == *b) {
+        a++;
+        b++;
+    }
+    return !*a && !*b;
+}
+
 int otb_default_config(const char *sd)
 {
-    char p[1100];
+    char dir[1100], p[1100];
+    DIR *d;
+    struct dirent *de;
     FILE *fp;
-    join(p, sizeof p, sd, "machines/next/config.ini");
-    if (is_file(p))
-        return 0;
+    int found = 0, bad = 0;
+    join(dir, sizeof dir, sd, "machines/next");
+    /* Since 8 Nov 2026 System/Next carries its own CONFIG.INI, with no mode
+     * chosen. A second config.ini beside it is the same name on the card and
+     * only one of the two is seen, so the configs there are set in place
+     * (every one, for cards an older OpenTBBlue gave a config.ini too). */
+    if ((d = opendir(dir)) != NULL) {
+        while ((de = readdir(d)) != NULL) {
+            if (!config_name(de->d_name))
+                continue;
+            join(p, sizeof p, dir, de->d_name);
+            if (!is_file(p))
+                continue;
+            found = 1;
+            if (choose_timing(p) < 0)
+                bad = 1;
+        }
+        closedir(d);
+    }
+    if (found)
+        return bad ? -1 : 0;
+    join(p, sizeof p, dir, "config.ini");
     fp = fopen(p, "wb");   /* LF only, as the Next's own files */
     if (!fp)
         return -1;

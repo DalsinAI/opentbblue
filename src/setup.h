@@ -113,8 +113,9 @@ int otb_fetch(const char *sd, int update);
 int otb_untar(const char *tar, const char *dir, long *files);
 
 /* Write machines/next/config.ini with a video mode chosen, so the first
- * boot goes straight to NextZXOS instead of the monitor test card. Leaves an
- * existing config.ini alone. */
+ * boot goes straight to NextZXOS instead of the monitor test card. A config
+ * already there (any case: CONFIG.INI is the same file on FAT) is kept; only
+ * a "timing=8" line, no mode chosen yet, is set to the first mode. */
 int otb_default_config(const char *sd);
 
 /* mkdir -p */
