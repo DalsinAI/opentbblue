@@ -82,6 +82,7 @@ jobs:
         with: { name: linux, path: dist/* }
 
   windows:
+    if: false   # Windows/macOS/ARM64 off for now (Dale, 20 Nov 2026); back on bigguy when its docker images are there
     runs-on: windows-latest
     timeout-minutes: 25
     defaults:
@@ -127,6 +128,7 @@ jobs:
         with: { name: windows, path: dist/* }
 
   macos:
+    if: false   # Windows/macOS/ARM64 off for now (Dale, 20 Nov 2026); back on bigguy when its docker images are there
     runs-on: macos-latest
     timeout-minutes: 25
     env:
@@ -194,7 +196,7 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.version, 'v')
-    needs: [linux, windows, macos, amiga]
+    needs: [linux, amiga]   # windows and macos return with bigguy's docker images
     runs-on: [self-hosted, lumavault]
     steps:
       - uses: actions/checkout@v4
