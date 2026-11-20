@@ -193,6 +193,8 @@ jobs:
         run: command -v gh >/dev/null || { S=$([ "$(id -u)" = 0 ] || echo sudo); $S apt-get update -q && $S apt-get install -y -q gh; }
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends jlha-utils patch
+      - name: ca-certificates as Debian installs it (bigguy's image leaves out its docs, which make_ca_bundle.py checks)
+        run: S=$([ "$(id -u)" = 0 ] || echo sudo); grep -l path-exclude /etc/dpkg/dpkg.cfg.d/* 2>/dev/null | xargs -r $S rm -f; $S apt-get install -y -q --reinstall ca-certificates
       - name: Build with the Team's toolchain, and pack the .lha with its Installer
         run: sh package/amiga/build-ci.sh "${VERSION#v}" dist
       - uses: actions/upload-artifact@v4
